@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:ads="http://schemas.android.com/apk/res-auto"
+    android:orientation="vertical"
+    android:background="@drawable/half_trans_bg"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content">
+    <ListView
+        android:id="@+id/channel_list_view"
+        android:background="@color/transparent"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:listSelector="@drawable/list_item_selector_style"
+        android:cacheColorHint="@color/transparent"
+        android:divider="@drawable/line"
+        android:layout_weight="1"/>
+    <FrameLayout
+        android:background="@color/transparent"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:minWidth="320dp"
+        android:minHeight="50dp">
+        <com.google.android.gms.ads.AdView
+            android:id="@+id/adView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            ads:adSize="BANNER"
+            ads:adUnitId="ca-app-pub-4741798363812571/9549193848"/>
+    </FrameLayout>
+</LinearLayout>

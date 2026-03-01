@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>نمونه کار - مدیریت STB</title>
+    <link rel="icon" href="data:," />
+    <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #4f46e5;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --error: #ef4444;
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --text-primary: #f8fafc;
+            --text-secondary: #cbd5e1;
+            --border: #334155;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Vazirmatn', sans-serif;
+            background: linear-gradient(135deg, var(--bg-primary) 0%, #1a202c 100%);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .demo-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .demo-header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        .demo-title {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, var(--primary), var(--success));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .demo-subtitle {
+            font-size: 1.25rem;
+            color: var(--text-secondary);
+            margin-bottom: 2rem;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-bottom: 3rem;
+        }
+
+        .feature-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+            padding: 2rem;
+            text-align: center;
+            transition: transform 0.2s;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-4px);
+        }
+
+        .feature-icon {
+            width: 4rem;
+            height: 4rem;
+            margin: 0 auto 1rem;
+            background: linear-gradient(135deg, var(--primary), var(--success));
+            border-radius: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
+
+        .feature-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .feature-description {
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        .demo-actions {
+            text-align: center;
+            margin: 3rem 0;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 1rem 2rem;
+            background: var(--primary);
+            color: white;
+            text-decoration: none;
+            border-radius: 0.75rem;
+            font-weight: 600;
+            font-size: 1.125rem;
+            transition: all 0.2s;
+            margin: 0 1rem;
+        }
+
+        .btn:hover {
+            background: #3730a3;
+            transform: translateY(-2px);
+        }
+
+        .btn.secondary {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+        }
+
+        .api-docs {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+            padding: 2rem;
+            margin-top: 3rem;
+        }
+
+        .api-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+
+        .api-endpoint {
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            font-family: monospace;
+        }
+
+        .endpoint-method {
+            color: var(--success);
+            font-weight: 600;
+        }
+
+        .endpoint-description {
+            color: var(--text-secondary);
+            margin-top: 0.5rem;
+        }
+
+        .code-block {
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            padding: 1rem;
+            font-family: monospace;
+            font-size: 0.875rem;
+            overflow-x: auto;
+            white-space: pre;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin: 2rem 0;
+        }
+
+        .stat-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .stat-label {
+            color: var(--text-secondary);
+            margin-top: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="demo-container">
+        <header class="demo-header">
+            <h1 class="demo-title">مدیریت STB MediaStar 4030</h1>
+            <p class="demo-subtitle">سیستم کامل کنترل و مدیریت دستگاه STB با امکانات پیشرفته</p>
+            
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-number">100%</div>
+                    <div class="stat-label">انطباق با پایتون</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">15+</div>
+                    <div class="stat-label">API Endpoint</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">1 ساعت</div>
+                    <div class="stat-label">کش کانال‌ها</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">5</div>
+                    <div class="stat-label">گروه دلخواه پیش‌فرض</div>
+                </div>
+            </div>
+        </header>
+
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon">🔗</div>
+                <h3 class="feature-title">اتصال پایدار</h3>
+                <p class="feature-description">
+                    اتصال خودکار مجدد با 10 تلاش، نظارت هر 15 ثانیه، و مدیریت خطاهای شبکه
+                </p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">📺</div>
+                <h3 class="feature-title">مدیریت کانال‌ها</h3>
+                <p class="feature-description">
+                    کش هوشمند 1 ساعته، جستجو در کانال‌ها، و نمایش اطلاعات کامل
+                </p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">⭐</div>
+                <h3 class="feature-title">دلخواه‌ها</h3>
+                <p class="feature-description">
+                    5 گروه پیش‌فرض، مدیریت کامل CRUD، و همگام‌سازی با STB
+                </p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">🎮</div>
+                <h3 class="feature-title">کنترل از راه دور</h3>
+                <p class="feature-description">
+                    کنترل کامل دستگاه، کلیدهای عددی، جهت‌ها، و دکمه‌های سیستم
+                </p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">📊</div>
+                <h3 class="feature-title">نظارت سیستم</h3>
+                <p class="feature-description">
+                    وضعیت اتصال، آمار کانال‌ها، اطلاعات کش، و اعلان‌های زنده
+                </p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">🌐</div>
+                <h3 class="feature-title">رابط فارسی</h3>
+                <p class="feature-description">
+                    طراحی مدرن RTL، فونت Vazirmatn، و تجربه کاربری بهینه
+                </p>
+            </div>
+        </div>
+
+        <div class="demo-actions">
+            <a href="index.html" class="btn">
+                🚀 شروع استفاده
+            </a>
+            <a href="#api-docs" class="btn secondary">
+                📖 مستندات API
+            </a>
+        </div>
+
+        <div class="api-docs" id="api-docs">
+            <h2 class="api-title">📡 مستندات WebSocket API</h2>
+            
+            <div class="api-endpoint">
+                <span class="endpoint-method">CONNECT</span> /ws
+                <div class="endpoint-description">اتصال WebSocket برای ارتباط دوطرفه</div>
+            </div>
+
+            <h3 style="margin: 2rem 0 1rem 0;">🔌 مدیریت اتصال</h3>
+            
+            <div class="api-endpoint">
+                <span class="endpoint-method">connect</span>
+                <div class="code-block">{"type": "connect", "payload": {"ip": "192.168.1.100", "port": 20000}}</div>
+                <div class="endpoint-description">اتصال به دستگاه STB</div>
+            </div>
+
+            <div class="api-endpoint">
+                <span class="endpoint-method">disconnect</span>
+                <div class="code-block">{"type": "disconnect"}</div>
+                <div class="endpoint-description">قطع اتصال از STB</div>
+            </div>
+
+            <div class="api-endpoint">
+                <span class="endpoint-method">reconnect</span>
+                <div class="code-block">{"type": "reconnect"}</div>
+                <div class="endpoint-description">اتصال مجدد با آخرین تنظیمات</div>
+            </div>
+
+            <h3 style="margin: 2rem 0 1rem 0;">📺 مدیریت کانال‌ها</h3>
+            
+            <div class="api-endpoint">
+                <span class="endpoint-method">refresh_channels</span>
+                <div class="code-block">{"type": "refresh_channels", "payload": {"force": false, "timeout": 60.0}}</div>
+                <div class="endpoint-description">بروزرسانی لیست کانال‌ها (احترام به کش 1 ساعته)</div>
+            </div>
+
+            <div class="api-endpoint">
+                <span class="endpoint-method">channel_play</span>
+                <div class="code-block">{"type": "channel_play", "payload": {"index": 123}}</div>
+                <div class="endpoint-description">تغییر به کانال مشخص</div>
+            </div>
+
+            <h3 style="margin: 2rem 0 1rem 0;">⭐ مدیریت دلخواه‌ها</h3>
+            
+            <div class="api-endpoint">
+                <span class="endpoint-method">add_favorite</span>
+                <div class="code-block">{"type": "add_favorite", "payload": {"channel_index": 123, "group_ids": [1, 2]}}</div>
+                <div class="endpoint-description">افزودن کانال به گروه‌های دلخواه</div>
+            </div>
+
+            <div class="api-endpoint">
+                <span class="endpoint-method">remove_favorite</span>
+                <div class="code-block">{"type": "remove_favorite", "payload": {"channel_index": 123, "group_ids": [1]}}</div>
+                <div class="endpoint-description">حذف کانال از گروه‌های دلخواه</div>
+            </div>
+
+            <div class="api-endpoint">
+                <span class="endpoint-method">get_favorites</span>
+                <div class="code-block">{"type": "get_favorites", "payload": {"group_id": 1}}</div>
+                <div class="endpoint-description">دریافت کانال‌های دلخواه یک گروه</div>
+            </div>
+
+            <div class="api-endpoint">
+                <span class="endpoint-method">create_favorite_group</span>
+                <div class="code-block">{"type": "create_favorite_group", "payload": {"group_name": "ورزشی"}}</div>
+                <div class="endpoint-description">ایجاد گروه دلخواه جدید</div>
+            </div>
+
+            <div class="api-endpoint">
+                <span class="endpoint-method">delete_favorite_group</span>
+                <div class="code-block">{"type": "delete_favorite_group", "payload": {"group_id": 6}}</div>
+                <div class="endpoint-description">حذف گروه دلخواه</div>
+            </div>
+
+            <div class="api-endpoint">
+                <span class="endpoint-method">rename_favorite_group</span>
+                <div class="code-block">{"type": "rename_favorite_group", "payload": {"group_id": 1, "new_name": "جدید"}}</div>
+                <div class="endpoint-description">تغییر نام گروه دلخواه</div>
+            </div>
+
+            <h3 style="margin: 2rem 0 1rem 0;">🎮 کنترل از راه دور</h3>
+            
+            <div class="api-endpoint">
+                <span class="endpoint-method">remote_key</span>
+                <div class="code-block">{"type": "remote_key", "payload": {"key_value": 8}}</div>
+                <div class="endpoint-description">ارسال کلید ریموت (0-9: اعداد، 8: OK، 2-5: جهت‌ها)</div>
+            </div>
+
+            <div class="api-endpoint">
+                <span class="endpoint-method">keyboard_send</span>
+                <div class="code-block">{"type": "keyboard_send", "payload": {"text": "سلام", "force": false}}</div>
+                <div class="endpoint-description">ارسال متن کیبورد</div>
+            </div>
+
+            <h3 style="margin: 2rem 0 1rem 0;">📊 اطلاعات سیستم</h3>
+            
+            <div class="api-endpoint">
+                <span class="endpoint-method">get_favorites_summary</span>
+                <div class="code-block">{"type": "get_favorites_summary"}</div>
+                <div class="endpoint-description">خلاصه کامل دلخواه‌ها و گروه‌ها</div>
+            </div>
+
+            <div class="api-endpoint">
+                <span class="endpoint-method">cache_status</span>
+                <div class="code-block">{"type": "cache_status"}</div>
+                <div class="endpoint-description">وضعیت کش و آمار سیستم</div>
+            </div>
+
+            <div class="api-endpoint">
+                <span class="endpoint-method">export_favorites</span>
+                <div class="code-block">{"type": "export_favorites"}</div>
+                <div class="endpoint-description">صادرات داده‌های دلخواه‌ها</div>
+            </div>
+
+            <div class="api-endpoint">
+                <span class="endpoint-method">import_favorites</span>
+                <div class="code-block">{"type": "import_favorites", "payload": {"import_data": {...}}}</div>
+                <div class="endpoint-description">وارد کردن داده‌های دلخواه‌ها</div>
+            </div>
+
+            <h3 style="margin: 2rem 0 1rem 0;">🔔 اعلان‌های خودکار</h3>
+            
+            <div class="code-block">// اعلان‌های اتصال
+{"type": "notification", "level": "success", "message": "STB متصل شد"}
+{"type": "notification", "level": "warning", "message": "در حال اتصال مجدد..."}
+{"type": "notification", "level": "error", "message": "اتصال قطع شد"}
+
+// رویدادهای سیستم
+{"event": "disconnected", "data": null}
+{"event": "reconnecting", "data": {"attempt": 2, "max_attempts": 10}}
+{"event": "reconnected", "data": {"login_info": {...}}}
+{"event": "channel_list_complete", "data": {"count": 587}}</div>
+        </div>
+
+        <div style="text-align: center; margin-top: 3rem; padding: 2rem; color: var(--text-secondary);">
+            <p>🚀 سیستم کامل مدیریت STB MediaStar 4030</p>
+            <p>انطباق کامل بین Python Backend و JavaScript Frontend</p>
+        </div>
+    </div>
+</body>
+</html>

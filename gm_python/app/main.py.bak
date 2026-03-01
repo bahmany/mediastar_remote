@@ -1,0 +1,813 @@
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+from pathlib import Path
+from typing import Any
+
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+
+from app.stb.client import STBClient, STBConnectionError
+from app.stb.rcu_keys import get_keymap
+
+log_path = Path(__file__).resolve().parent.parent / "gmscreen.log"
+
+root_logger = logging.getLogger()
+root_logger.handlers.clear()
+root_logger.setLevel(logging.DEBUG)
+
+_formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+
+_file_handler = logging.FileHandler(str(log_path), mode="w", encoding="utf-8")
+_file_handler.setFormatter(_formatter)
+_file_handler.setLevel(logging.DEBUG)
+
+_console_handler = logging.StreamHandler()
+_console_handler.setFormatter(_formatter)
+_console_handler.setLevel(logging.INFO)
+
+root_logger.addHandler(_file_handler)
+root_logger.addHandler(_console_handler)
+
+for _lname in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+    logging.getLogger(_lname).propagate = True
+
+logger = logging.getLogger(__name__)
+
+app = FastAPI()
+
+app.mount(
+    "/static",
+    StaticFiles(directory=str(Path(__file__).parent / "static")),
+    name="static",
+)
+
+
+def _login_info_view(login_info: Any) -> dict[str, Any] | None:
+    if login_info is None:
+        return None
+    try:
+        return {
+            "stb_ip_address_disp": str(getattr(login_info, "stb_ip_address_disp", "")),
+            "platform_id": int(getattr(login_info, "platform_id", 0)),
+            "send_data_type": int(getattr(login_info, "send_data_type", 0)),
+            "model_name": str(getattr(login_info, "model_name", "")),
+            "stb_sn_disp": str(getattr(login_info, "stb_sn_disp", "")),
+            "sw_version": int(getattr(login_info, "sw_version", 0)),
+            "sw_sub_version": int(getattr(login_info, "sw_sub_version", 0)),
+            "sat_enable": int(getattr(login_info, "sat_enable", 0)),
+            "sat2ip_enable": int(getattr(login_info, "sat2ip_enable", 0)),
+        }
+    except Exception:
+        return None
+
+
+def _connected_client() -> tuple[Any | None, Any | None]:
+    client = getattr(app.state, "stb_client", None)
+    if client is None:
+        return None, None
+    login_info = getattr(client, "login_info", None)
+    if login_info is None:
+        app.state.stb_client = None
+        app.state.login_info = None
+        return None, None
+    app.state.login_info = login_info
+    return client, login_info
+
+
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request) -> Any:
+    ui_index = Path(__file__).parent / "static" / "ui" / "index.html"
+    return FileResponse(str(ui_index))
+
+
+@app.get("/ui")
+async def ui_app() -> Any:
+    ui_index = Path(__file__).parent / "static" / "ui" / "index.html"
+    return FileResponse(str(ui_index))
+
+
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket) -> None:
+    await websocket.accept()
+
+    queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
+
+    async def _send_snapshot() -> None:
+        client, login_info = _connected_client()
+        if client is None or login_info is None:
+            await websocket.send_text(json.dumps({"type": "snapshot", "connected": False, "login_info": None, "state": None}))
+            return
+
+        await websocket.send_text(
+            json.dumps(
+                {
+                    "type": "snapshot",
+                    "connected": True,
+                    "login_info": _login_info_view(login_info),
+                    "state": {
+                        "channels": client.state.channels,
+                        "fav_groups": client.state.fav_groups,
+                        "satellites": client.state.satellites,
+                        "current_channel_index": client.state.current_channel_index,
+                        "epg_events": client.state.epg_events,
+                        "timers": client.state.timers,
+                        "stb_info": client.state.stb_info,
+                    },
+                },
+                default=str,
+            )
+        )
+
+    def _attach_queue() -> None:
+        client = getattr(app.state, "stb_client", None)
+        if client is not None:
+            client.set_event_queue(queue)
+
+    def _detach_queue() -> None:
+        client = getattr(app.state, "stb_client", None)
+        if client is not None:
+            client.set_event_queue(None)
+
+    _attach_queue()
+    await _send_snapshot()
+
+    async def _sender() -> None:
+        while True:
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=30.0)
+                await websocket.send_text(json.dumps(event, default=str))
+            except asyncio.TimeoutError:
+                await websocket.send_text(json.dumps({"event": "ping", "data": None}))
+
+    async def _receiver() -> None:
+        while True:
+            raw = await websocket.receive_text()
+            data = json.loads(raw)
+            if not isinstance(data, dict):
+                continue
+
+            msg_type = data.get("type")
+            msg_id = data.get("id")
+            payload = data.get("payload") or {}
+
+            async def _reply(ok: bool, out: Any = None, error: str | None = None) -> None:
+                resp: dict[str, Any] = {"type": "response", "id": msg_id, "ok": ok}
+                if error is not None:
+                    resp["error"] = error
+                if out is not None:
+                    resp["data"] = out
+                await websocket.send_text(json.dumps(resp, default=str))
+
+            if msg_type == "connect":
+                ip = str(payload.get("ip") or "").strip()
+                port = int(payload.get("port") or 20000)
+                if not ip:
+                    await _reply(False, error="ip is required")
+                    continue
+
+                client = STBClient(ip=ip, port=port)
+                try:
+                    login_info = await asyncio.to_thread(client.connect_and_login)
+                except STBConnectionError as e:
+                    await _reply(False, error=str(e))
+                    continue
+
+                app.state.stb_client = client
+                app.state.login_info = login_info
+                app.state.last_target = {"ip": ip, "port": int(port)}
+                _attach_queue()
+                await _reply(True, {"login_info": _login_info_view(login_info)})
+                await _send_snapshot()
+
+                async def _bg_bootstrap() -> None:
+                    try:
+                        await asyncio.to_thread(client.request_stb_info)
+                        await asyncio.to_thread(client.request_current_channel)
+                        await asyncio.to_thread(client.request_fav_group_names)
+                        await client.request_channel_list(timeout=60.0, force_refresh=True)
+                    except Exception:
+                        pass
+
+                asyncio.create_task(_bg_bootstrap())
+
+            elif msg_type == "disconnect":
+                client = getattr(app.state, "stb_client", None)
+                if client is not None:
+                    await asyncio.to_thread(client.close)
+                app.state.stb_client = None
+                app.state.login_info = None
+                _detach_queue()
+                await _reply(True)
+                await _send_snapshot()
+
+            elif msg_type == "reconnect":
+                cur_client, cur_login = _connected_client()
+                if cur_client is not None and cur_login is not None:
+                    await _reply(True, {"login_info": _login_info_view(cur_login)})
+                    await _send_snapshot()
+                    continue
+
+                target = getattr(app.state, "last_target", None)
+                if not isinstance(target, dict) or not target.get("ip"):
+                    await _reply(False, error="no previous target")
+                    await _send_snapshot()
+                    continue
+
+                ip = str(target.get("ip"))
+                port = int(target.get("port") or 20000)
+                client = STBClient(ip=ip, port=port)
+                try:
+                    login_info = await asyncio.to_thread(client.connect_and_login)
+                except STBConnectionError as e:
+                    await _reply(False, error=str(e))
+                    await _send_snapshot()
+                    continue
+
+                app.state.stb_client = client
+                app.state.login_info = login_info
+                _attach_queue()
+                await _reply(True, {"login_info": _login_info_view(login_info)})
+                await _send_snapshot()
+
+                try:
+                    await asyncio.to_thread(client.request_stb_info)
+                    await client.request_channel_list(timeout=60.0, force_refresh=True)
+                    await asyncio.to_thread(client.request_current_channel)
+                    await asyncio.to_thread(client.request_fav_group_names)
+                except Exception:
+                    pass
+
+            elif msg_type == "get_state":
+                await _reply(True)
+                await _send_snapshot()
+
+            else:
+                client = getattr(app.state, "stb_client", None)
+                if client is None or getattr(client, "login_info", None) is None:
+                    await _reply(False, error="not connected")
+                    continue
+
+                if msg_type == "refresh":
+                    await asyncio.to_thread(client.request_current_channel)
+                    await asyncio.to_thread(client.request_stb_info)
+                    await asyncio.to_thread(client.request_satellite_list)
+                    await _reply(True)
+
+                elif msg_type == "refresh_channels":
+                    force = bool(payload.get("force") or False)
+                    timeout = float(payload.get("timeout") or 60.0)
+                    try:
+                        count = await client.request_channel_list(timeout=timeout, force_refresh=force)
+                        await _reply(True, {"channel_count": count})
+                    except STBConnectionError as e:
+                        await _reply(False, error=str(e))
+
+                elif msg_type == "channel_play":
+                    index = int(payload.get("index") or 0)
+                    try:
+                        await asyncio.to_thread(client.change_channel, index)
+                        await _reply(True)
+                    except STBConnectionError as e:
+                        await _reply(False, error=str(e))
+
+                elif msg_type == "remote_key":
+                    key_value = int(payload.get("key_value") or 0)
+                    try:
+                        await asyncio.to_thread(client.send_remote_key, key_value)
+                        await _reply(True)
+                    except STBConnectionError as e:
+                        await _reply(False, error=str(e))
+
+                elif msg_type == "keyboard_send":
+                    text = str(payload.get("text") or "")
+                    force = bool(payload.get("force") or False)
+                    try:
+                        await asyncio.to_thread(client.send_keyboard_text, text, force=force)
+                        await _reply(True)
+                    except STBConnectionError as e:
+                        await _reply(False, error=str(e))
+
+                elif msg_type == "keyboard_key":
+                    key = str(payload.get("key") or "")
+                    force = bool(payload.get("force") or False)
+                    try:
+                        await asyncio.to_thread(client.send_keyboard_key, key, force=force)
+                        await _reply(True)
+                    except STBConnectionError as e:
+                        await _reply(False, error=str(e))
+
+                elif msg_type == "keyboard_code":
+                    code = int(payload.get("code") or 0)
+                    force = bool(payload.get("force") or False)
+                    try:
+                        await asyncio.to_thread(client.send_keyboard_code, code, force=force)
+                        await _reply(True)
+                    except STBConnectionError as e:
+                        await _reply(False, error=str(e))
+
+                elif msg_type == "epg":
+                    channel = int(payload.get("channel") or 0)
+                    try:
+                        await asyncio.to_thread(client.request_epg, channel)
+                        await _reply(True)
+                    except STBConnectionError as e:
+                        await _reply(False, error=str(e))
+
+                elif msg_type == "cache_status":
+                    processor = client._processor
+                    await _reply(
+                        True,
+                        {
+                            "cache_valid": processor.is_channels_cache_valid(),
+                            "cache_time": processor.state.channels_cache_time,
+                            "channel_count": len(processor.state.channels),
+                        },
+                    )
+
+                else:
+                    await _reply(False, error=f"unknown type: {msg_type}")
+
+    sender_task = asyncio.create_task(_sender())
+    receiver_task = asyncio.create_task(_receiver())
+
+    try:
+        done, pending = await asyncio.wait(
+            {sender_task, receiver_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for t in done:
+            try:
+                _ = t.exception()
+            except Exception:
+                pass
+        for t in pending:
+            t.cancel()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        _detach_queue()
+
+
+@app.get("/remote", response_class=HTMLResponse)
+async def remote(request: Request) -> Any:
+    client, login_info = _connected_client()
+    if client is None or login_info is None:
+        return RedirectResponse(url="/", status_code=303)
+
+    error = getattr(app.state, "last_error", None)
+    app.state.last_error = None
+
+    keymap = get_keymap(int(login_info.platform_id))
+    quick_keys = [
+        "POWER",
+        "MUTE",
+        "DIGIT_1",
+        "DIGIT_2",
+        "DIGIT_3",
+        "DIGIT_4",
+        "DIGIT_5",
+        "DIGIT_6",
+        "DIGIT_7",
+        "DIGIT_8",
+        "DIGIT_9",
+        "DIGIT_0",
+        "VOL_UP",
+        "VOL_DOWN",
+        "CH_UP",
+        "CH_DOWN",
+        "MENU",
+        "EXIT",
+        "BACK",
+        "EPG",
+        "UP",
+        "DOWN",
+        "LEFT",
+        "RIGHT",
+        "OK",
+        "RED",
+        "GREEN",
+        "YELLOW",
+        "BLUE",
+        "INFO",
+        "FAV",
+        "RECALL",
+        "TV_RADIO",
+    ]
+    buttons = [{"label": k, "key": keymap.get(k)} for k in quick_keys if keymap.get(k) is not None]
+    all_buttons = [
+        {"label": k, "key": v}
+        for k, v in sorted(keymap.items(), key=lambda kv: int(kv[1]) if kv[1] is not None else 999999)
+        if v is not None and k != "NO_KEY_EVENT"
+    ]
+
+    return templates.TemplateResponse(
+        "remote.html",
+        {
+            "request": request,
+            "login_info": login_info,
+            "error": error,
+            "buttons": buttons,
+            "all_buttons": all_buttons,
+        },
+    )
+
+
+@app.post("/api/reconnect")
+async def api_reconnect() -> Any:
+    cur_client, _login_info = _connected_client()
+    if cur_client is not None:
+        return {"ok": True}
+
+    target = getattr(app.state, "last_target", None)
+    if not isinstance(target, dict) or not target.get("ip"):
+        return {"ok": False, "error": "no previous target"}
+
+    ip = str(target.get("ip"))
+    port = int(target.get("port") or 20000)
+    client = STBClient(ip=ip, port=port)
+    try:
+        login_info = await asyncio.to_thread(client.connect_and_login)
+    except STBConnectionError as e:
+        return {"ok": False, "error": str(e)}
+
+    app.state.stb_client = client
+    app.state.login_info = login_info
+
+    try:
+        await asyncio.to_thread(client.request_stb_info)
+        await client.request_channel_list(timeout=60.0, force_refresh=True)
+        await asyncio.to_thread(client.request_current_channel)
+        await asyncio.to_thread(client.request_fav_group_names)
+    except Exception:
+        pass
+
+    return {"ok": True, "login_info": _login_info_view(login_info)}
+
+
+@app.post("/remote/send_key")
+async def remote_send_key(key_value: int = Form(...)) -> Any:
+    client, _login_info = _connected_client()
+    if client is None:
+        return RedirectResponse(url="/", status_code=303)
+
+    try:
+        await asyncio.to_thread(client.send_remote_key, key_value)
+    except STBConnectionError as e:
+        app.state.last_error = str(e)
+
+    return RedirectResponse(url="/remote", status_code=303)
+
+
+@app.get("/protocol", response_class=HTMLResponse)
+async def protocol_page(request: Request) -> Any:
+    login_info = getattr(app.state, "login_info", None)
+    error = getattr(app.state, "last_error", None)
+    app.state.last_error = None
+
+    md_path = Path(__file__).resolve().parent.parent / "MEDIASTAR_4030_4K_PROTOCOL.md"
+    try:
+        md_text = md_path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        md_text = "Protocol file not found."
+
+    return templates.TemplateResponse(
+        "protocol.html",
+        {
+            "request": request,
+            "login_info": login_info,
+            "error": error,
+            "md_text": md_text,
+        },
+    )
+
+
+@app.get("/epg", response_class=HTMLResponse)
+async def epg_page(request: Request, channel: int = 0) -> Any:
+    client, login_info = _connected_client()
+    if client is None or login_info is None:
+        return RedirectResponse(url="/", status_code=303)
+
+    error = getattr(app.state, "last_error", None)
+    app.state.last_error = None
+
+    return templates.TemplateResponse(
+        "epg.html",
+        {
+            "request": request,
+            "login_info": login_info,
+            "error": error,
+            "channel_index": channel,
+            "events": client.state.epg_events,
+        },
+    )
+
+
+@app.get("/api/state")
+async def api_state() -> Any:
+    client, login_info = _connected_client()
+    if client is None or login_info is None:
+        return {"connected": False, "login_info": None, "state": None}
+
+    return {
+        "connected": True,
+        "login_info": _login_info_view(login_info),
+        "state": {
+            "channels": client.state.channels,
+            "fav_groups": client.state.fav_groups,
+            "satellites": client.state.satellites,
+            "current_channel_index": client.state.current_channel_index,
+            "epg_events": client.state.epg_events,
+            "timers": client.state.timers,
+            "stb_info": client.state.stb_info,
+        },
+    }
+
+
+@app.post("/api/refresh")
+async def api_refresh() -> Any:
+    client, _login_info = _connected_client()
+    if client is None:
+        return {"ok": False}
+
+    await asyncio.to_thread(client.request_current_channel)
+    await asyncio.to_thread(client.request_stb_info)
+    await client.request_channel_list(timeout=60.0, force_refresh=False)
+    await asyncio.to_thread(client.request_satellite_list)
+    await asyncio.to_thread(client.request_fav_group_names)
+    return {"ok": True}
+
+
+@app.post("/api/refresh/stb_info")
+async def api_refresh_stb_info() -> Any:
+    client, _login_info = _connected_client()
+    if client is None:
+        return {"ok": False}
+    try:
+        await asyncio.to_thread(client.request_stb_info)
+        return {"ok": True}
+    except STBConnectionError as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/refresh/channels")
+async def api_refresh_channels(force: bool = False) -> Any:
+    client, _login_info = _connected_client()
+    if client is None:
+        return {"ok": False}
+    
+    # Call the async method directly
+    try:
+        await asyncio.to_thread(client.request_stb_info)
+        count = await client.request_channel_list(timeout=60.0, force_refresh=force)
+        return {"ok": True, "channel_count": count, "from_cache": not force and count > 0}
+    except STBConnectionError as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/refresh/satellites")
+async def api_refresh_satellites() -> Any:
+    client, _login_info = _connected_client()
+    if client is None:
+        return {"ok": False}
+    try:
+        await asyncio.to_thread(client.request_satellite_list)
+        return {"ok": True}
+    except STBConnectionError as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/refresh/fav_groups")
+async def api_refresh_fav_groups() -> Any:
+    client, _login_info = _connected_client()
+    if client is None:
+        return {"ok": False}
+    try:
+        await asyncio.to_thread(client.request_fav_group_names)
+        return {"ok": True}
+    except STBConnectionError as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/refresh/channel_list_update")
+async def api_channel_list_update() -> Any:
+    client, _login_info = _connected_client()
+    if client is None:
+        return {"ok": False}
+    try:
+        await asyncio.to_thread(client.request_channel_list_update)
+        return {"ok": True}
+    except STBConnectionError as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/channels/cache")
+async def api_channels_cache_status() -> Any:
+    client, _login_info = _connected_client()
+    if client is None:
+        return {"ok": False}
+    
+    processor = client._processor
+    cache_valid = processor.is_channels_cache_valid()
+    cache_time = processor.state.channels_cache_time
+    channel_count = len(processor.state.channels)
+    
+    return {
+        "ok": True,
+        "cache_valid": cache_valid,
+        "cache_time": cache_time,
+        "channel_count": channel_count
+    }
+
+
+@app.post("/api/epg")
+async def api_epg(channel: int = Form(...)) -> Any:
+    client, _login_info = _connected_client()
+    if client is None:
+        return {"ok": False}
+    try:
+        await asyncio.to_thread(client.request_epg, int(channel))
+        return {"ok": True}
+    except STBConnectionError as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/remote/key")
+async def api_remote_key(key_value: int = Form(...)) -> Any:
+    client, _login_info = _connected_client()
+    if client is None:
+        return {"ok": False}
+    try:
+        await asyncio.to_thread(client.send_remote_key, int(key_value))
+        return {"ok": True}
+    except STBConnectionError as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/channel/play")
+async def api_channel_play(index: int = Form(...)) -> Any:
+    client, _login_info = _connected_client()
+    if client is None:
+        return {"ok": False}
+    try:
+        await asyncio.to_thread(client.change_channel, int(index))
+        return {"ok": True}
+    except STBConnectionError as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/channel/list_type")
+async def api_channel_list_type(is_fav_list: int = Form(...), select_list_type: int = Form(...)) -> Any:
+    client, _login_info = _connected_client()
+    if client is None:
+        return {"ok": False}
+    try:
+        await asyncio.to_thread(client.set_channel_list_type, is_fav_list=int(is_fav_list), select_list_type=int(select_list_type))
+        return {"ok": True}
+    except STBConnectionError as e:
+        return {"ok": False, "error": str(e)}
+
+
+def _resolve_channel_by_index(client: Any, index: int) -> dict[str, Any] | None:
+    try:
+        for ch in client.state.channels:
+            if not isinstance(ch, dict):
+                continue
+            idx = ch.get("ProgramIndex", ch.get("ServiceIndex", -1))
+            try:
+                if int(idx) == int(index):
+                    return ch
+            except Exception:
+                continue
+    except Exception:
+        return None
+    return None
+
+
+def _resolve_program_id(ch: dict[str, Any] | None, fallback_index: int) -> str:
+    if not ch:
+        return str(fallback_index)
+    for k in ("ProgramId", "ServiceID", "ServiceId", "ServiceID "):
+        if k in ch and ch.get(k) not in (None, ""):
+            return str(ch.get(k))
+    return str(fallback_index)
+
+
+def _resolve_tv_state(ch: dict[str, Any] | None) -> int:
+    if not ch:
+        return 0
+    for k in ("ChannelType", "Radio", "TvState"):
+        if k in ch and ch.get(k) not in (None, ""):
+            try:
+                return int(ch.get(k))
+            except Exception:
+                pass
+    return 0
+
+
+@app.post("/api/fav/toggle")
+async def api_fav_toggle(index: int = Form(...), fav: int = Form(...), group_ids: str = Form("")) -> Any:
+    client, _login_info = _connected_client()
+    if client is None:
+        return {"ok": False}
+
+    ch = _resolve_channel_by_index(client, int(index))
+    program_id = _resolve_program_id(ch, int(index))
+    tv_state = _resolve_tv_state(ch)
+
+    gids: list[int] = []
+    try:
+        if group_ids.strip():
+            gids = [int(x) for x in group_ids.split(",") if x.strip()]
+    except Exception:
+        gids = []
+
+    try:
+        await asyncio.to_thread(
+            client.set_channel_fav_mark,
+            tv_state=tv_state,
+            fav_mark=int(fav),
+            favor_group_ids=gids,
+            program_ids=[program_id],
+        )
+        return {"ok": True}
+    except STBConnectionError as e:
+        return {"ok": False, "error": str(e)}
+
+
+def _parse_force_flag(force: str | None) -> bool:
+    if force is None:
+        return False
+    return str(force).strip().lower() in {"1", "true", "yes", "on"}
+
+
+@app.post("/api/keyboard/keycode")
+async def api_keyboard_keycode(key_code: int = Form(...), force: str = Form("0")) -> Any:
+    client, _login_info = _connected_client()
+    if client is None:
+        return {"ok": False}
+
+    try:
+        await asyncio.to_thread(client.send_input_keycode, int(key_code), force=_parse_force_flag(force))
+        return {"ok": True}
+    except STBConnectionError as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/keyboard/text")
+async def api_keyboard_text(text: str = Form(...), force: str = Form("0")) -> Any:
+    client, _login_info = _connected_client()
+    if client is None:
+        return {"ok": False}
+
+    try:
+        await asyncio.to_thread(client.send_text, str(text), force=_parse_force_flag(force))
+        return {"ok": True}
+    except STBConnectionError as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/keyboard/enter")
+async def api_keyboard_enter() -> Any:
+    client, _login_info = _connected_client()
+    if client is None:
+        return {"ok": False}
+    try:
+        await asyncio.to_thread(client.send_keyboard_enter)
+        return {"ok": True}
+    except STBConnectionError as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/keyboard/backspace")
+async def api_keyboard_backspace() -> Any:
+    client, _login_info = _connected_client()
+    if client is None:
+        return {"ok": False}
+    try:
+        await asyncio.to_thread(client.send_keyboard_backspace)
+        return {"ok": True}
+    except STBConnectionError as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/keyboard/dismiss")
+async def api_keyboard_dismiss() -> Any:
+    client, _login_info = _connected_client()
+    if client is None:
+        return {"ok": False}
+    try:
+        await asyncio.to_thread(client.dismiss_input_method)
+        return {"ok": True}
+    except STBConnectionError as e:
+        return {"ok": False, "error": str(e)}
+
+
+
+
+

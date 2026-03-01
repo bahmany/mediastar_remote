@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+    <android.support.v4.view.ViewPager
+        android:id="@+id/update_guide_pages"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"/>
+    <TextView
+        android:textColor="@android:color/black"
+        android:id="@+id/update_guide_skip"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginRight="@dimen/margin_small"
+        android:layout_marginBottom="@dimen/margin_small"
+        android:text="@string/guide_skip"
+        android:layout_alignParentRight="true"
+        android:layout_alignParentBottom="true"/>
+    <LinearLayout
+        android:gravity="center_horizontal"
+        android:orientation="horizontal"
+        android:id="@+id/pages_dot"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="@dimen/margin_small"
+        android:layout_alignParentBottom="true"/>
+</RelativeLayout>

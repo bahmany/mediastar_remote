@@ -1,0 +1,85 @@
+# Build directories
+build*/
+build_*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.ninja
+
+# Executables (keep the main one in gm_c)
+*.exe
+!gm_c/gmscreen.exe
+
+# Object files
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.so
+*.dylib
+
+# IDE files
+.vscode/
+.vs/
+*.vcxproj*
+*.sln
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Debug files
+*.pdb
+*.ilk
+*.exp
+*.map
+*.dSYM/
+
+# Logs
+*.log
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*~
+.cache/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Node modules (if any)
+node_modules/
+
+# APK build files
+apk_source/app/build/
+apk_source/app/.gradle/
+apk_source/app/local.properties
+apk_source/app/release/
+apk_source/app/debug/
+
+# Channel cache files
+channel_cache.json
+*.cache
+
+# Crash logs
+crash.log

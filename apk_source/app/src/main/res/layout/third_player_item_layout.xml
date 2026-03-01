@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/third_player_item_layout"
+    android:background="@drawable/bg_third_player_xml"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content">
+    <ImageView
+        android:id="@+id/third_player_icon"
+        android:layout_width="50dp"
+        android:layout_height="50dp"
+        android:layout_centerInParent="true"/>
+    <TextView
+        android:textColor="@color/black"
+        android:id="@+id/third_player_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="25dp"
+        android:maxLength="14"
+        android:layout_below="@+id/third_player_icon"
+        android:layout_centerHorizontal="true"/>
+</RelativeLayout>

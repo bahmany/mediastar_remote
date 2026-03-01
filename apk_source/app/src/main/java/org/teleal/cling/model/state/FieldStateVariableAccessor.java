@@ -1,0 +1,32 @@
+package org.teleal.cling.model.state;
+
+import java.lang.reflect.Field;
+import org.teleal.common.util.Reflections;
+
+/* loaded from: classes.dex */
+public class FieldStateVariableAccessor extends StateVariableAccessor {
+    protected Field field;
+
+    public FieldStateVariableAccessor(Field field) {
+        this.field = field;
+    }
+
+    public Field getField() {
+        return this.field;
+    }
+
+    @Override // org.teleal.cling.model.state.StateVariableAccessor
+    public Class<?> getReturnType() {
+        return getField().getType();
+    }
+
+    @Override // org.teleal.cling.model.state.StateVariableAccessor
+    public Object read(Object serviceImpl) throws Exception {
+        return Reflections.get(this.field, serviceImpl);
+    }
+
+    @Override // org.teleal.cling.model.state.StateVariableAccessor
+    public String toString() {
+        return String.valueOf(super.toString()) + " Field: " + getField();
+    }
+}

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:background="@drawable/image_control_menu_bg"
+    android:padding="20dp"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content">
+    <Button
+        android:layout_gravity="top|center_horizontal"
+        android:id="@+id/control_pop_home"
+        android:background="@drawable/image_control_home_select"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"/>
+    <Button
+        android:layout_gravity="center"
+        android:id="@+id/control_pop_menu"
+        android:background="@drawable/image_control_menu_select"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"/>
+    <Button
+        android:layout_gravity="center"
+        android:id="@+id/control_pop_vol"
+        android:background="@drawable/image_control_vol_select"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"/>
+    <Button
+        android:layout_gravity="bottom|center_horizontal"
+        android:id="@+id/control_pop_game"
+        android:background="@drawable/image_control_game"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"/>
+</FrameLayout>

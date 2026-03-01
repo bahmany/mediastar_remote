@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+    <android.support.v4.widget.DrawerLayout
+        android:id="@+id/drawer_layout"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="0.4">
+        <include
+            android:id="@+id/play_view"
+            layout="@layout/live_play_layout"/>
+        <fragment
+            android:name="mktvsmart.screen.vlc.ProgramListDrawer"
+            android:layout_gravity="center"
+            android:id="@+id/navigation_drawer"
+            android:layout_width="320dp"
+            android:layout_height="match_parent"/>
+    </android.support.v4.widget.DrawerLayout>
+    <FrameLayout
+        android:id="@+id/chat_view"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="0.6">
+        <fragment
+            android:name="mktvsmart.screen.gchat.ui.GChatByMobileFragment"
+            android:id="@+id/chat_fragment"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"/>
+    </FrameLayout>
+</LinearLayout>

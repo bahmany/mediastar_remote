@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+    <ListView
+        android:layout_gravity="start"
+        android:id="@+id/sidelist"
+        android:background="@android:color/transparent"
+        android:nextFocusLeft="@+id/sidelist"
+        android:nextFocusRight="@+id/sidelist"
+        android:nextFocusUp="@+id/sidelist"
+        android:nextFocusDown="@+id/sidelist"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fastScrollEnabled="true"/>
+    <View
+        android:background="@drawable/siderbar_bg_n"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"/>
+</LinearLayout>

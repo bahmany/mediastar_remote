@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content">
+    <ImageView
+        android:id="@+id/fav_icon"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_centerInParent="true"/>
+    <ImageView
+        android:id="@+id/favor_check"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:src="@drawable/fav_checkbox_grey"
+        android:layout_centerInParent="true"/>
+    <TextView
+        android:textColor="@color/black"
+        android:gravity="center"
+        android:id="@+id/favor_text"
+        android:background="@drawable/fav_text_grey"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="25dp"
+        android:maxLength="14"
+        android:layout_below="@+id/favor_check"
+        android:layout_alignLeft="@+id/favor_check"/>
+</RelativeLayout>

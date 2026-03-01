@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:background="@color/popup_window_background"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content">
+    <ListView
+        android:id="@+id/ip_login_history_list"
+        android:background="@color/white"
+        android:layout_width="wrap_content"
+        android:layout_height="@dimen/ip_login_history_list_window"/>
+</LinearLayout>

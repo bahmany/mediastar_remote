@@ -1,0 +1,33 @@
+package com.github.mikephil.charting.interfaces;
+
+import android.graphics.PointF;
+import android.graphics.RectF;
+import com.github.mikephil.charting.data.ChartData;
+import com.github.mikephil.charting.formatter.ValueFormatter;
+
+/* loaded from: classes.dex */
+public interface ChartInterface {
+    PointF getCenterOfView();
+
+    PointF getCenterOffsets();
+
+    RectF getContentRect();
+
+    ChartData getData();
+
+    ValueFormatter getDefaultValueFormatter();
+
+    int getHeight();
+
+    int getWidth();
+
+    float getXChartMax();
+
+    float getXChartMin();
+
+    int getXValCount();
+
+    float getYChartMax();
+
+    float getYChartMin();
+}

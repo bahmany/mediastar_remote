@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:id="@+id/changepin"
+    android:layout_width="200dp"
+    android:layout_height="400dp">
+    <LinearLayout
+        android:orientation="horizontal"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content">
+        <TextView
+            android:textSize="20dp"
+            android:textColor="#ffffffff"
+            android:layout_width="150dp"
+            android:layout_height="wrap_content"
+            android:text="old password:"/>
+        <EditText
+            android:id="@+id/oldpass"
+            android:layout_width="100dp"
+            android:layout_height="wrap_content"
+            android:maxLength="4"
+            android:inputType="number"/>
+    </LinearLayout>
+    <LinearLayout
+        android:orientation="horizontal"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp">
+        <TextView
+            android:textSize="20dp"
+            android:textColor="#ffffffff"
+            android:layout_width="150dp"
+            android:layout_height="wrap_content"
+            android:text="new password:"/>
+        <EditText
+            android:id="@+id/newpass"
+            android:layout_width="100dp"
+            android:layout_height="wrap_content"
+            android:maxLength="4"
+            android:inputType="number"/>
+    </LinearLayout>
+    <LinearLayout
+        android:orientation="horizontal"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp">
+        <TextView
+            android:textSize="20dp"
+            android:textColor="#ffffffff"
+            android:layout_width="150dp"
+            android:layout_height="wrap_content"
+            android:text="verify password:"/>
+        <EditText
+            android:id="@+id/verifypass"
+            android:layout_width="100dp"
+            android:layout_height="wrap_content"
+            android:maxLength="4"
+            android:inputType="number"/>
+    </LinearLayout>
+</LinearLayout>

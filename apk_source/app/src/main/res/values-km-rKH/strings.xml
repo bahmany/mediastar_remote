@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="common_google_play_services_notification_ticker">កំហុស​​សេវាកម្ម​ Google កម្សាន្ត</string>
+    <string name="common_google_play_services_notification_needs_installation_title">កម្មវិធី​ទាមទារ​ឲ្យ​ដំឡើង​សេវាកម្ម​ Google កម្សាន្ត។</string>
+    <string name="common_google_play_services_notification_needs_update_title">កម្មវិធី​ទាមទារ​​ធ្វើ​បច្ចុប្បន្នភាព​សេវាកម្ម ​Google កម្សាន្ត។</string>
+    <string name="common_android_wear_notification_needs_update_text">កម្មវិធី​ទាមទារ​បច្ចុប្បន្នភាព​ចំពោះ​កម្មវិធី Android Wear ។</string>
+    <string name="common_google_play_services_needs_enabling_title">កម្មវិធី​ទាមទារ​ឲ្យ​បើក​សេវាកម្ម​ Google កម្សាន្ត។</string>
+    <string name="common_google_play_services_error_notification_requested_by_msg">បាន​ស្នើ​ដោយ %1$s</string>
+    <string name="common_google_play_services_install_title">ទទួល​សេវាកម្ម​កម្សាន្ត Google</string>
+    <string name="common_google_play_services_install_text_phone">កម្មវិធី​នេះ​នឹង​មិន​ដំណើរការ​​ទេ​បើ​គ្មាន​​សេវាកម្ម​កម្សាន្ត​ Google ដែល​ទូរស័ព្ទ​របស់​​អ្នក​មិន​មាន។</string>
+    <string name="common_google_play_services_install_text_tablet">​​កម្មវិធី​នេះ​នឹង​មិន​ដំណើរការ​​ទេ​បើ​គ្មាន​​សេវាកម្ម​កម្សាន្ត​ Google ដែល​​កុំព្យូទ័រ​បន្ទះ​របស់​អ្នក​មិន​មាន។</string>
+    <string name="common_google_play_services_install_button">ទទួល​សេវាកម្ម​កម្សាន្ត Google</string>
+    <string name="common_google_play_services_enable_title">បើក​សេវាកម្ម​កម្សាន្ត Google</string>
+    <string name="common_google_play_services_enable_text">កម្ម​វិធី​នេះ​នឹង​មិន​ដំណើរការ​ទេ​ លុះត្រាតែ​អ្នក​បើក​សេវាកម្ម​​កម្សាន្ត​ Google ។</string>
+    <string name="common_google_play_services_enable_button">បើក​សេវាកម្ម​កម្សាន្ត Google</string>
+    <string name="common_google_play_services_update_title">ធ្វើ​បច្ចុប្បន្នភាព​សេវាកម្ម​កម្សាន្ត Google</string>
+    <string name="common_android_wear_update_title">ធ្វើ​បច្ចុប្បន្នភាព Android Wear</string>
+    <string name="common_google_play_services_update_text">កម្មវិធី​នេះ​នឹង​មិន​ដំណើរការ​ទេ​ លុះត្រាតែ​អ្នក​ធ្វើ​បច្ចុប្បន្នភាព​សេវាកម្ម​កម្សាន្ត Google ។</string>
+    <string name="common_android_wear_update_text">កម្មវិធី​នេះ​នឹង​មិន​ដំណើរការ​ទេ លុះ​ត្រា​តែ​អ្នក​ធ្វើ​បច្ចុប្បន្នភាព​​កម្មវិធី Android Wear ។</string>
+    <string name="common_google_play_services_network_error_title">កំហុស​​បណ្ដាញ</string>
+    <string name="common_google_play_services_network_error_text">បាន​ទាមទារ​ការ​តភ្ជាប់​ទិន្នន័យ ដើម្បី​ភ្ជាប់​សេវាកម្ម​ឃ្លាំង​កម្មវិធី។</string>
+    <string name="common_google_play_services_invalid_account_title">គណនី​មិន​ត្រឹមត្រូវ</string>
+    <string name="common_google_play_services_invalid_account_text">គណនី​ដែល​បាន​បញ្ជាក់​មិន​មាន​នៅ​លើ​ឧបករណ៍​នេះ​ទេ។ សូម​ជ្រើស​គណនី​ផ្សេង​។</string>
+    <string name="common_google_play_services_unknown_issue">មិន​ស្គាល់​បញ្ហា​ជាមួយ​សេវាកម្ម​កម្សាន្ត Google ។</string>
+    <string name="common_google_play_services_unsupported_title">សេវាកម្ម​កម្សាន្ត​ Google</string>
+    <string name="common_google_play_services_unsupported_text">សេវាកម្ម​កម្សាន្ត Google អាស្រ័យ​លើ​កម្មវិធី​របស់​អ្នក មិន​ត្រូវ​បាន​គាំទ្រ​ដោយ​ឧបករណ៍​របស់​អ្នក។ សូម​ទាក់ទង​ក្រុមហ៊ុន​ផលិត​សម្រាប់​ជំនួយ។</string>
+    <string name="common_google_play_services_update_button">ធ្វើ​បច្ចុប្បន្នភាព</string>
+    <string name="common_signin_button_text">ចូល</string>
+    <string name="common_signin_button_text_long">ចូល​ដោយ​ប្រើ​ Google</string>
+    <string name="common_open_on_phone">បើក​តាម​ទូរស័ព្ទ</string>
+    <string name="abc_action_mode_done">រួចរាល់</string>
+    <string name="abc_action_bar_home_description">រកមើល​ទៅ​ដើម</string>
+    <string name="abc_action_bar_up_description">រកមើល​ឡើងលើ</string>
+    <string name="abc_action_menu_overflow_description">ជម្រើស​ច្រើន​ទៀត</string>
+    <string name="abc_searchview_description_search">ស្វែងរក</string>
+    <string name="abc_searchview_description_query">ស្វែងរក​សំណួរ</string>
+    <string name="abc_searchview_description_clear">សម្អាត​សំណួរ</string>
+    <string name="abc_searchview_description_submit">ដាក់​​​ស្នើ​សំណួរ</string>
+    <string name="abc_searchview_description_voice">ការស្វែងរក​សំឡេង</string>
+    <string name="abc_activitychooserview_choose_application">ជ្រើស​កម្មវិធី​​</string>
+    <string name="abc_activity_chooser_view_see_all">មើល​ទាំងអស់</string>
+    <string name="abc_shareactionprovider_share_with_application">ចែករំលែក​ជាមួយ %s</string>
+    <string name="abc_shareactionprovider_share_with">ចែករំលែក​ជាមួយ</string>
+</resources>

@@ -1,0 +1,21 @@
+package org.cybergarage.upnp.device;
+
+/* loaded from: classes.dex */
+public class NT {
+    public static final String EVENT = "upnp:event";
+    public static final String ROOTDEVICE = "upnp:rootdevice";
+
+    public static final boolean isRootDevice(String ntValue) {
+        if (ntValue == null) {
+            return false;
+        }
+        return ntValue.startsWith("upnp:rootdevice");
+    }
+
+    public static final boolean isHiMultiScreenDevice(String ntValue) {
+        if (ntValue == null) {
+            return false;
+        }
+        return ntValue.startsWith("urn:schemas-upnp-org:device:HiMultiScreenServerDevice:1");
+    }
+}

@@ -1,0 +1,261 @@
+#pragma once
+
+#include <cstdint>
+#include <string>
+
+namespace stb {
+namespace constants {
+
+// Magic codes
+constexpr const char* G_MS_BROADCAST_INFO_MAGIC_CODE = "39WwijOog54a";
+constexpr int G_MS_BROADCAST_INFO_MAGIC_CODE_LEN = 12;
+constexpr uint8_t G_MS_BROADCAST_INFO_XOR_VALUE = 0x5B;
+
+// Ports
+constexpr int G_MS_BROADCAST_PORT = 25860;
+constexpr int G_MS_LOGIN_DEFAULT_PORT_NUM = 20000;
+constexpr int UPNP_PORT_START = 20001;
+constexpr int UPNP_PORT_END = 20005;
+
+// Data lengths
+constexpr int STB_LOGIN_INFO_DATA_LENGTH = 108;
+constexpr int GS_CONTROL_DATA_MSG_LENGTH = 16;
+constexpr int G_MSCREEN_CONTROL_DATA_HEADER_LEN = 4;
+constexpr const char* G_MSCREEN_CONTROL_DATA_HEADER_STR = "GCDH";
+constexpr const char* COMPRESS_CONTROL_STRING = "BegC";
+
+// Socket frame constants
+constexpr const char* SOCKET_HEADER_START_FLAG = "Start";
+constexpr const char* SOCKET_HEADER_END_FLAG = "End";
+constexpr int MAX_DATA_LENGTH_BIT = 7;
+
+// Buffer lengths
+constexpr int BUFF_LENGTH_RECEIVE_DATA_PER_TIME = 2048;
+constexpr int BUFF_LENGTH_RECEIVE_DATA_TOTAL = 8388608;
+
+// Timeouts (milliseconds)
+constexpr int SOCKET_TCP_TIMEOUT = 3000;
+constexpr int BACK_KEY_EXIT_TIMEOUT = 2000;
+constexpr int KEEP_ALIVE_INTERVAL_MS = 25000;
+constexpr int KEEP_ALIVE_TIMEOUT_MS = 30000;
+constexpr int CONNECTION_MONITOR_INTERVAL_MS = 15000;
+constexpr int CONNECTION_TIMEOUT_MS = 45000;
+
+// Connect types
+constexpr int CONNECT_TYEP_AUTO_LOGIN = 0;
+constexpr int CONNECT_TYEP_IP_LOGIN = 1;
+
+// Connection error codes
+constexpr int CONNECT_STB_ERROR_UNKONWN_ERROR = -1;
+constexpr int CONNECT_STB_ERROR_NOT_RESPONSE = -2;
+constexpr int CONNECT_STB_ERROR_NOT_REACHABLE = -3;
+constexpr int CONNECT_STB_ERROR_NOT_VALID = -4;
+constexpr int CONNECT_STB_ERROR_IP_ERROR = -5;
+constexpr int CONNECT_STB_ERROR_SW_VERSION_ERROR = -6;
+constexpr int CONNECT_STB_ERROR_STB_IS_FULL = -7;
+constexpr int CONNECT_STB_ERROR_HAND_SHARK_ERROR = -8;
+constexpr int CONNECT_STB_ERROR_SERVER_IP_NON_EXIST = -9;
+constexpr int CONNECT_STB_ERROR_DATA_TRANSMISSION_FAIL = -10;
+
+// Request message types (GMS_MSG_REQUEST_*)
+constexpr int GMS_MSG_REQUEST_CHANNEL_LIST = 0;
+constexpr int GMS_MSG_REQUEST_EVENT_TIMER = 1;
+constexpr int GMS_MSG_REQUEST_SLEEP_TIMER = 2;
+constexpr int GMS_MSG_REQUEST_PLAYING_CHANNEL = 3;
+constexpr int GMS_MSG_REQUEST_PROGRAM_EPG = 5;
+constexpr int GMS_MSG_REQUEST_RS232_DATA_DEBUG = 6;
+constexpr int GMS_MSG_REQUEST_CUR_USER_DATA_DEBUG = 7;
+constexpr int GMS_MSG_REQUEST_CHANNEL_DATA_DEBUG = 8;
+constexpr int GMS_MSG_REQUEST_FLASH_DATA_DEBUG = 9;
+constexpr int GMS_MSG_REQUEST_SCREENSHOT_DEBUG = 10;
+constexpr int GMS_MSG_REQUEST_STB_TIME = 11;
+constexpr int GMS_MSG_REQUEST_FAV_GROUP_NAMES = 12;
+constexpr int GMS_MSG_REQUEST_CONTROL_SETTING = 13;
+constexpr int GMS_MSG_REQUEST_CHANNEL_LIST_TYPE = 14;
+constexpr int GMS_MSG_REQUEST_STB_INFO = 15;
+constexpr int GMS_MSG_REQUEST_STB_SETTING_LOGIN = 16;
+constexpr int GMS_MSG_REQUEST_TV_RADIO_TYPE = 17;
+constexpr int GMS_MSG_REQUEST_CHANNEL_SORT_TYPE = 18;
+constexpr int GMS_MSG_REQUEST_MUTE_STATE = 19;
+constexpr int GMS_MSG_REQUEST_CONTROL_PASSWORD_SWITCH = 20;
+constexpr int GMS_MSG_REQUEST_UPDATE_HEADER = 21;
+constexpr int GMS_MSG_REQUEST_SAT_LIST = 22;
+constexpr int GMS_MSG_REQUEST_SAT_SELECT_NO = 23;
+constexpr int GMS_MSG_REQUEST_TP_LIST = 24;
+constexpr int GMS_MSG_REQUEST_RS232_PRINTED_DATA = 25;
+constexpr int GMS_MSG_REQUEST_SOCKET_KEEP_ALIVE = 26;
+constexpr int GMS_MSG_REQUEST_PVR_LIST = 27;
+constexpr int GMS_MSG_REQUEST_MY_IP_FROM_STB = 28;
+constexpr int GMS_MSG_REQUEST_STB_SCREENSHOT_DATA_INFO = 29;
+constexpr int GMS_MSG_REQUEST_LOGIN_INFO = 998;
+constexpr int GMS_MSG_REQUEST_MAX_VALUE = 999;
+
+// Do message types (GMS_MSG_DO_*)
+constexpr int GMS_MSG_DO_CHANNEL_SWITCH = 1000;
+constexpr int GMS_MSG_DO_CHANNEL_RENAME = 1001;
+constexpr int GMS_MSG_DO_CHANNEL_DELETE = 1002;
+constexpr int GMS_MSG_DO_CHANNEL_LOCK = 1003;
+constexpr int GMS_MSG_DO_CHANNEL_FAV_MARK = 1004;
+constexpr int GMS_MSG_DO_CHANNEL_MOVE = 1005;
+constexpr int GMS_MSG_DO_CHANNEL_LIST_SORT = 1006;
+constexpr int GMS_MSG_DO_CHANNEL_LIST_TYPE_CHANGED = 1007;
+constexpr int GMS_MSG_DO_PLAYING_CHANNEL_PASSWORD_CHECK = 1008;
+constexpr int GMS_MSG_DO_SAT2IP_CHANNEL_PLAY = 1009;
+constexpr int GMS_MSG_DO_CHANNEL_LIST_UPDATE = 1010;
+constexpr int GMS_MSG_DO_FAV_CHANNEL_DELETE = 1011;
+constexpr int GMS_MSG_DO_SAT2IP_PLAY_STOP = 1012;
+constexpr int GMS_MSG_DO_EVENT_TIMER_DELETE = 1020;
+constexpr int GMS_MSG_DO_EVENT_TIMER_ADD = 1021;
+constexpr int GMS_MSG_DO_EVENT_TIMER_EDIT = 1022;
+constexpr int GMS_MSG_DO_REPEATE_EVENT_TIMER_SAVE = 1023;
+constexpr int GMS_MSG_DO_FACTORY_DEFAULT_ALL = 1030;
+constexpr int GMS_MSG_DO_FACTORY_DEFAULT_CHANNEL = 1031;
+constexpr int GMS_MSG_DO_FACTORY_DEFAULT_RADIO = 1032;
+constexpr int GMS_MSG_DO_FACTORY_DEFAULT_SCRAMBLE = 1033;
+constexpr int GMS_MSG_DO_FACTORY_DEFAULT_TP = 1034;
+constexpr int GMS_MSG_DO_FACTORY_DFAULT_SAT = 1035;
+constexpr int GMS_MSG_DO_REMOTE_CONTROL = 1040;
+constexpr int GMS_MSG_DO_POWER_SWITCH = 1041;
+constexpr int GMS_MSG_DO_TV_RADIO_SWITCH = 1042;
+constexpr int GMS_MSG_DO_STB_RESTART = 1043;
+constexpr int GMS_MSG_DO_SLEEP_TIMER_SET = 1050;
+constexpr int GMS_MSG_DO_PASSWORD_SWITCH_SET = 1051;
+constexpr int GMS_MSG_DO_NEW_PASSWORD_SET = 1052;
+constexpr int GMS_MSG_DO_SCREEN_LOCK = 1053;
+constexpr int GMS_MSG_DO_RS232_DEBUG_ENABLE = 1054;
+constexpr int GMS_MSG_DO_FAV_GROUP_RENAME = 1055;
+constexpr int GMS_MSG_DO_PASSWORD_CHECK = 1056;
+constexpr int GMS_MSG_DO_INPUT_PASSWORD_CANCEL = 1057;
+constexpr int GMS_MSG_DO_INPUT_METHOD_DISMISS = 1058;
+constexpr int GMS_MSG_DO_INPUT_METHOD_KEY_CODE_SET = 1059;
+constexpr int GMS_MSG_DO_SAT_SELECTED_CHANGE = 1060;
+constexpr int GMS_MSG_DO_INCOMMING_CALL_NUM_DISPLAY = 1061;
+constexpr int GMS_MSG_DO_SMS_NUM_DISPLAY = 1062;
+constexpr int GMS_MSG_DO_MAX_VALUE = 1999;
+
+// Notify message types (GMS_MSG_NOTIFY_*)
+constexpr int GMS_MSG_NOTIFY_INPUT_PASSWORD_CANCEL = 2000;
+constexpr int GMS_MSG_NOTIFY_PLAYING_CHANNEL_CHANGED = 2001;
+constexpr int GMS_MSG_NOTIFY_CHANNEL_LIST_CHANGED = 2002;
+constexpr int GMS_MSG_NOTIFY_MUTE_STATE_CHANGED = 2003;
+constexpr int GMS_MSG_NOTIFY_TV_RADIO_SWITCH = 2004;
+constexpr int GMS_MSG_NOTIFY_EVENT_TIMER_CHANGED = 2005;
+constexpr int GMS_MSG_NOTIFY_PSW_DIALOG_SHOW = 2006;
+constexpr int GMS_MSG_NOTIFY_PSW_DIALOG_DISMISS = 2007;
+constexpr int GMS_MSG_NOTIFY_CONTROL_SETTING_CHANGED = 2008;
+constexpr int GMS_MSG_NOTIFY_SAT_NO_SELECT_CHANGED = 2009;
+constexpr int GMS_MSG_NOTIFY_NEW_RS232_DATA_PRINTED = 2010;
+constexpr int GMS_MSG_NOTIFY_INPUT_METHOD_POPUP = 2011;
+constexpr int GMS_MSG_NOTIFY_INPUT_METHOD_DISMISS = 2012;
+constexpr int GMS_MSG_NOTIFY_FAV_GROUP_NAME_CHANGED = 2013;
+constexpr int GMS_MSG_NOTIFY_POWER_SWITCH_CHANGED = 2014;
+constexpr int GMS_MSG_NOTIFY_CLIENT_TYPE_BECOME_MASTER = 2015;
+constexpr int GMS_MSG_NOTIFY_FACTORY_DEFAULT_ALL = 2016;
+constexpr int GMS_MSG_NOTIFY_FACTORY_DEFAULT_CHANNEL = 2017;
+constexpr int GMS_MSG_NOTIFY_FACTORY_DEFAULT_RADIO = 2018;
+constexpr int GMS_MSG_NOTIFY_SAT_LIST_CHANGED = 2019;
+constexpr int GMS_MSG_NOTIFY_NEW_PVR_ADD = 2020;
+constexpr int GMS_MSG_NOTIFY_PVR_RENAME = 2021;
+constexpr int GMS_MSG_NOTIFY_PVR_DELETE = 2022;
+constexpr int GMS_MSG_NOTIFY_USB_DISK_REMOVE = 2023;
+constexpr int GMS_MSG_NOTIFY_STB_IP_CHANGED = 2024;
+constexpr int GMS_MSG_NOTIFY_SDS_ENABLED = 2025;
+constexpr int GMS_MSG_NOTIFY_SDS_DISABLED = 2026;
+constexpr int GMS_MSG_NOTIFY_STB_SCREEN_UNLOCKED = 2027;
+constexpr int GMS_MSG_NOTIFY_MAX_VALUE = 2999;
+
+// Command message types (GMS_MSG_CMD_*)
+constexpr int GMS_MSG_CMD_INIT = 3000;
+constexpr int GMS_MSG_CMD_DEINIT = 3001;
+constexpr int GMS_MSG_CMD_CACULATE_USER_DATA_LENGTH = 3002;
+constexpr int GMS_MSG_CMD_CACULATE_CHANNEL_DATA_LENGHT = 3003;
+constexpr int GMS_MSG_CMD_RETURN_PRINT_MEM_ADDR = 3004;
+
+// Response codes (GMS_RESPONSE_*)
+constexpr int GMS_RESPONSE_NO_ERROR = 0;
+constexpr int GMS_RESPONSE_FAIL = 1;
+constexpr int GMS_RESPONSE_FORMAT_ERROR = 2;
+constexpr int GMS_RESPONSE_NO_ENOUGH_MEMORY = 3;
+constexpr int GMS_RESPONSE_POINTER_INVALID = 4;
+constexpr int GMS_RESPONSE_TIMEOUT = 5;
+constexpr int GMS_RESPONSE_BEYOND_SUPPORT_CLIENT_NUM = 6;
+constexpr int GMS_RESPONSE_CREATE_MESSAGE_FAILED = 7;
+constexpr int GMS_RESPONSE_CREATE_TASK_FAILED = 8;
+constexpr int GMS_RESPONSE_PASSWORD_ERROR = 9;
+constexpr int GMS_RESPONSE_CREATE_DATA_FILE_FAILED = 10;
+constexpr int GMS_RESPONSE_BAD_PARAMETER = 11;
+constexpr int GMS_RESPONSE_DEBUG_ERROR = 12;
+constexpr int GMS_RESPONSE_NET_ERROR = 13;
+constexpr int GMS_RESPONSE_COMPRESS_FAILED = 14;
+constexpr int GMS_RESPONSE_EDIT_EVENT_TIMER_REPEAT = 15;
+constexpr int GMS_RESPONSE_CHANNEL_RECORDED = 16;
+constexpr int GMS_RESPONSE_STB_IS_MENU_STATE = 17;
+constexpr int GMS_RESPONSE_NOT_SUPPORT_USB = 18;
+constexpr int GMS_RESPONSE_USB_NOT_CONNECT = 19;
+constexpr int GMS_RESPONSE_USB_NOT_READY = 20;
+
+// GSCMD internal commands
+constexpr int GSCMD_OBTAIN_MESSENGER = 4096;
+constexpr int GSCMD_START_SEND_DEBUG_DATA = 4097;
+constexpr int GSCMD_RECV_DATA_FINISH = 4098;
+constexpr int GSCMD_RECV_DEBUG_DATA_FINISH = 4099;
+constexpr int GSCMD_TO_SEND_EMAIL = 4100;
+constexpr int GSCMD_SEND_EMAIL_FINISH = 4101;
+constexpr int GSCMD_COMPRESS_DEBUG_FILE = 4102;
+constexpr int GSCMD_SEND_DATA_TO_ACTIVITY = 4103;
+constexpr int GSCMD_UPDATE_CHANNEL_LIST_FAILED = 4104;
+constexpr int GSCMD_SEND_EMAIL_EXCEPTION = 4105;
+constexpr int GSCMD_NOTIFY_SOCKET_CLOSED = 4112;
+constexpr int GSCMD_NOTIFY_BROADCAST_LOGIN_INFO_UPDATED = 4113;
+constexpr int GSCMD_PLAY_SAT2IP_CHANNEL_FAILED = 4114;
+constexpr int GSCMD_REFRESH_SAT_LIST = 4115;
+constexpr int GSCMD_GET_IP_BY_SN = 4116;
+constexpr int GSCMD_STB_IN_STANDBY = 4117;
+constexpr int GSCMD_NOTIFY_CALL_AND_SMS_REMIND_CHANGED = 4118;
+
+// Structure types
+constexpr int STRUCT_CHANNEL_LIST = 0;
+constexpr int STRUCT_SLEEP_TIMER = 1;
+constexpr int STRUCT_PARENT_CONTROL = 2;
+constexpr int STRUCT_SOFTWARE_INFO = 3;
+constexpr int STRUCT_EVENT_TIMER = 4;
+constexpr int STRUCT_STREAM_DATA_INFO = 5;
+constexpr int STRUCT_PROGRAM_EPG = 6;
+constexpr int STRUCT_CONFIRM_OK = 7;
+constexpr int STRUCT_CHANNEL_PASSWORD = 8;
+constexpr int STRUCT_STB_TIME = 9;
+constexpr int STRUCT_FAVOR_GROUP = 10;
+constexpr int STRUCT_CONTROL_SETTING = 11;
+constexpr int STRUCT_CHANNEL_TYPE = 12;
+constexpr int STRUCT_CURRENT_SORT_TYPE = 13;
+constexpr int STRUCT_STB_INFO = 14;
+constexpr int STRUCT_ONLY_ONE_DATA = 15;
+constexpr int STRUCT_SAT2IP_RETURN = 16;
+constexpr int STRUCT_ASK_STB_SETTING_WHEN_LOGIN = 17;
+constexpr int STRUCT_SAT_LIST = 18;
+constexpr int STRUCT_TP_LIST = 19;
+constexpr int STRUCT_PVR_LIST = 20;
+constexpr int STRUCT_GCHAT_START = 21;
+constexpr int STRUCT_GCHAT_ROOM_INFO = 22;
+constexpr int STRUCT_GCHAT_NEW_MSG = 23;
+constexpr int STRUCT_GCHAT_BLACK_LIST = 24;
+constexpr int STRUCT_GCHAT_SETTING = 25;
+constexpr int STRUCT_GCHAT_PROGRAM_INFO = 26;
+constexpr int STRUCT_GCHAT_USER_NAME = 27;
+constexpr int STRUCT_SPECTRUM_INFO = 28;
+constexpr int STRUCT_SPECTRUM_SETTING = 29;
+
+// Channel list types
+constexpr int CHANNEL_LIST_TYPE_ALL = 0;
+constexpr int CHANNEL_LIST_TYPE_FTA = 1;
+constexpr int CHANNEL_LIST_TYPE_SCRAMBLE = 2;
+constexpr int CHANNEL_LIST_TYPE_HD = 3;
+constexpr int CHANNEL_LIST_TYPE_TV = 0;
+constexpr int CHANNEL_LIST_TYPE_RADIO = 1;
+
+// Handshake messages
+constexpr const char* UPNP_HANDSHAKE_MSG_MOBILE = "HANDSHAKE_MOBILE";
+constexpr const char* UPNP_HANDSHAKE_MSG_MOBILE_LIST = "HANDSHAKE_MOBILE_LIST";
+
+} // namespace constants
+} // namespace stb

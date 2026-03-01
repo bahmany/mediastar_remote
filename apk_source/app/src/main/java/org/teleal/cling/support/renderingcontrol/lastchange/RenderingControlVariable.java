@@ -1,0 +1,194 @@
+package org.teleal.cling.support.renderingcontrol.lastchange;
+
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+import org.teleal.cling.model.types.UnsignedIntegerTwoBytes;
+import org.teleal.cling.support.lastchange.EventedValue;
+import org.teleal.cling.support.lastchange.EventedValueShort;
+import org.teleal.cling.support.lastchange.EventedValueString;
+import org.teleal.cling.support.lastchange.EventedValueUnsignedIntegerTwoBytes;
+
+/* loaded from: classes.dex */
+public class RenderingControlVariable {
+    public static Set<Class<? extends EventedValue>> ALL = new HashSet<Class<? extends EventedValue>>() { // from class: org.teleal.cling.support.renderingcontrol.lastchange.RenderingControlVariable.1
+        {
+            add(PresetNameList.class);
+            add(Brightness.class);
+            add(Contrast.class);
+            add(Sharpness.class);
+            add(RedVideoGain.class);
+            add(BlueVideoGain.class);
+            add(GreenVideoGain.class);
+            add(RedVideoBlackLevel.class);
+            add(BlueVideoBlackLevel.class);
+            add(GreenVideoBlackLevel.class);
+            add(ColorTemperature.class);
+            add(HorizontalKeystone.class);
+            add(VerticalKeystone.class);
+            add(Mute.class);
+            add(VolumeDB.class);
+            add(Volume.class);
+        }
+    };
+
+    public static class PresetNameList extends EventedValueString {
+        public PresetNameList(String s) {
+            super(s);
+        }
+
+        public PresetNameList(Map.Entry<String, String>[] entryArr) {
+            super(entryArr);
+        }
+    }
+
+    public static class Brightness extends EventedValueUnsignedIntegerTwoBytes {
+        public Brightness(UnsignedIntegerTwoBytes value) {
+            super(value);
+        }
+
+        public Brightness(Map.Entry<String, String>[] entryArr) {
+            super(entryArr);
+        }
+    }
+
+    public static class Contrast extends EventedValueUnsignedIntegerTwoBytes {
+        public Contrast(UnsignedIntegerTwoBytes value) {
+            super(value);
+        }
+
+        public Contrast(Map.Entry<String, String>[] entryArr) {
+            super(entryArr);
+        }
+    }
+
+    public static class Sharpness extends EventedValueUnsignedIntegerTwoBytes {
+        public Sharpness(UnsignedIntegerTwoBytes value) {
+            super(value);
+        }
+
+        public Sharpness(Map.Entry<String, String>[] entryArr) {
+            super(entryArr);
+        }
+    }
+
+    public static class RedVideoGain extends EventedValueUnsignedIntegerTwoBytes {
+        public RedVideoGain(UnsignedIntegerTwoBytes value) {
+            super(value);
+        }
+
+        public RedVideoGain(Map.Entry<String, String>[] entryArr) {
+            super(entryArr);
+        }
+    }
+
+    public static class BlueVideoGain extends EventedValueUnsignedIntegerTwoBytes {
+        public BlueVideoGain(UnsignedIntegerTwoBytes value) {
+            super(value);
+        }
+
+        public BlueVideoGain(Map.Entry<String, String>[] entryArr) {
+            super(entryArr);
+        }
+    }
+
+    public static class GreenVideoGain extends EventedValueUnsignedIntegerTwoBytes {
+        public GreenVideoGain(UnsignedIntegerTwoBytes value) {
+            super(value);
+        }
+
+        public GreenVideoGain(Map.Entry<String, String>[] entryArr) {
+            super(entryArr);
+        }
+    }
+
+    public static class RedVideoBlackLevel extends EventedValueUnsignedIntegerTwoBytes {
+        public RedVideoBlackLevel(UnsignedIntegerTwoBytes value) {
+            super(value);
+        }
+
+        public RedVideoBlackLevel(Map.Entry<String, String>[] entryArr) {
+            super(entryArr);
+        }
+    }
+
+    public static class BlueVideoBlackLevel extends EventedValueUnsignedIntegerTwoBytes {
+        public BlueVideoBlackLevel(UnsignedIntegerTwoBytes value) {
+            super(value);
+        }
+
+        public BlueVideoBlackLevel(Map.Entry<String, String>[] entryArr) {
+            super(entryArr);
+        }
+    }
+
+    public static class GreenVideoBlackLevel extends EventedValueUnsignedIntegerTwoBytes {
+        public GreenVideoBlackLevel(UnsignedIntegerTwoBytes value) {
+            super(value);
+        }
+
+        public GreenVideoBlackLevel(Map.Entry<String, String>[] entryArr) {
+            super(entryArr);
+        }
+    }
+
+    public static class ColorTemperature extends EventedValueUnsignedIntegerTwoBytes {
+        public ColorTemperature(UnsignedIntegerTwoBytes value) {
+            super(value);
+        }
+
+        public ColorTemperature(Map.Entry<String, String>[] entryArr) {
+            super(entryArr);
+        }
+    }
+
+    public static class HorizontalKeystone extends EventedValueShort {
+        public HorizontalKeystone(Short value) {
+            super(value);
+        }
+
+        public HorizontalKeystone(Map.Entry<String, String>[] entryArr) {
+            super(entryArr);
+        }
+    }
+
+    public static class VerticalKeystone extends EventedValueShort {
+        public VerticalKeystone(Short value) {
+            super(value);
+        }
+
+        public VerticalKeystone(Map.Entry<String, String>[] entryArr) {
+            super(entryArr);
+        }
+    }
+
+    public static class Mute extends EventedValueChannelMute {
+        public Mute(ChannelMute value) {
+            super(value);
+        }
+
+        public Mute(Map.Entry<String, String>[] entryArr) {
+            super(entryArr);
+        }
+    }
+
+    public static class VolumeDB extends EventedValueChannelVolumeDB {
+        public VolumeDB(ChannelVolumeDB value) {
+            super(value);
+        }
+
+        public VolumeDB(Map.Entry<String, String>[] entryArr) {
+            super(entryArr);
+        }
+    }
+
+    public static class Volume extends EventedValueChannelVolume {
+        public Volume(ChannelVolume value) {
+            super(value);
+        }
+
+        public Volume(Map.Entry<String, String>[] entryArr) {
+            super(entryArr);
+        }
+    }
+}

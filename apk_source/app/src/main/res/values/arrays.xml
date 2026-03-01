@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <array name="sortType">
+        <item>@string/str_lcn</item>
+        <item>@string/str_chs</item>
+        <item>@string/str_alphabet</item>
+        <item>@string/str_transponder</item>
+        <item>@string/str_ftatocas</item>
+        <item>@string/str_default</item>
+        <item>@string/str_favor</item>
+        <item>@string/str_ftatocas_and_alphabet</item>
+        <item>@string/str_provider</item>
+        <item>@string/str_service_id</item>
+    </array>
+    <array name="sortType_trident8471">
+        <item>@string/str_lcn</item>
+        <item>@string/str_chs</item>
+        <item>@string/str_language</item>
+        <item>@string/str_fta</item>
+        <item>@string/str_satellite</item>
+        <item>@string/str_transponder</item>
+        <item>@string/str_favor</item>
+        <item>@string/str_alphabet</item>
+        <item>@string/str_service_id</item>
+    </array>
+    <array name="channel_list">
+        <item>@string/str_program_id</item>
+        <item>@string/str_program_name</item>
+        <item>@string/str_program_index</item>
+        <item>@string/str_sat_name</item>
+        <item>@string/str_program_type</item>
+        <item>@string/str_fav_mark</item>
+    </array>
+    <array name="fav_radio">
+        <item>@string/str_fav_news</item>
+        <item>@string/str_fav_movies</item>
+        <item>@string/str_fav_music</item>
+        <item>@string/str_fav_sports</item>
+        <item>@string/str_fav_education</item>
+        <item>@string/str_fav_weather</item>
+        <item>@string/str_fav_children</item>
+        <item>@string/str_fav_culture</item>
+    </array>
+    <array name="main_page_selection">
+        <item>@string/str_program</item>
+        <item>@string/str_remote</item>
+        <item>@string/str_debug</item>
+    </array>
+    <array name="timer_option">
+        <item>@string/str_event_timer</item>
+        <item>@string/str_sleep_timer</item>
+    </array>
+    <array name="slider_option">
+        <item>@string/str_main_page</item>
+        <item>@string/str_parental_ctrl</item>
+        <item>@string/str_software_update</item>
+        <item>@string/str_stb_debug</item>
+        <item>@string/str_simple_remote</item>
+    </array>
+    <array name="control_option">
+        <item>@string/str_sleep_timer</item>
+        <item>@string/str_parent_ctrl</item>
+        <item>@string/str_change_password</item>
+        <item>@string/str_screen_lock</item>
+        <item>@string/str_power_off</item>
+        <item>@string/str_factory_default</item>
+    </array>
+    <array name="factory_option">
+        <item>@string/str_all</item>
+        <item>@string/str_channels_only</item>
+        <item>@string/str_radio_channels_only</item>
+        <item>@string/str_scramble_channels_only</item>
+    </array>
+    <array name="factory_option_trident8471">
+        <item>@string/str_reset_all</item>
+        <item>@string/str_reset_all_chs</item>
+        <item>@string/str_reset_all_radio_chs</item>
+        <item>@string/str_reset_all_scramble_chs</item>
+    </array>
+    <array name="system_settings_option">
+        <item>@string/str_play_mode</item>
+        <item>@string/str_enable_debug</item>
+        <item>@string/str_email</item>
+    </array>
+    <array name="event_item">
+        <item>@string/event_channel</item>
+        <item>@string/str_data</item>
+        <item>@string/event_start</item>
+        <item>@string/event_stop</item>
+        <item>@string/event_repeat</item>
+        <item>@string/event_record</item>
+    </array>
+    <array name="channel_list_type_string">
+        <item>@string/str_all_channels</item>
+        <item>@string/str_fta_channels</item>
+        <item>@string/str_scramble_channels</item>
+        <item>@string/str_hd_channels</item>
+    </array>
+</resources>

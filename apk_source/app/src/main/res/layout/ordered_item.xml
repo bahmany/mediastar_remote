@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:background="@drawable/popupbar_button"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+    <TextView
+        android:textColor="@drawable/font_selector"
+        android:gravity="center"
+        android:id="@+id/title"
+        android:duplicateParentState="true"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"/>
+    <TextView
+        android:textColor="@drawable/font_selector"
+        android:gravity="center"
+        android:id="@+id/status"
+        android:duplicateParentState="true"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"/>
+</LinearLayout>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mktvsmart.screen.view.KeyboardLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:gravity="center_horizontal"
+    android:orientation="vertical"
+    android:id="@+id/keyboard_layout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+        <View
+            android:layout_width="0dp"
+            android:layout_height="0dp"/>
+    </ScrollView>
+</mktvsmart.screen.view.KeyboardLayout>
