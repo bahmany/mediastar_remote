@@ -83,3 +83,4 @@ channel_cache.json
 
 # Crash logs
 crash.log
+create_release.ps1
