@@ -1510,9 +1510,16 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                             int fkey = (fnKeyChoice == 0) ? stb::keys::KEY_FUNC : stb::keys::KEY_F1;
                             std::thread([&, dig = std::string(digits), fk = fkey]() {
                                 try {
+                                    // Send F1 key
                                     app->client.sendRemoteKey(fk);
-                                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-                                    app->client.sendNumericSequence(dig, 80);
+                                    std::this_thread::sleep_for(std::chrono::milliseconds(400));
+                                    // Send digits one by one with longer delay
+                                    for (char c : dig) {
+                                        if (c >= '0' && c <= '9') {
+                                            app->client.sendNumericKey(c - '0');
+                                            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+                                        }
+                                    }
                                 } catch (...) {}
                             }).detach();
                         }
