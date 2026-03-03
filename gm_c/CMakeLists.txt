@@ -13,6 +13,7 @@ find_package(ZLIB REQUIRED)
 
 # Include directories
 include_directories(${CMAKE_SOURCE_DIR}/include)
+include_directories(${CMAKE_SOURCE_DIR})
 
 # Dear ImGui (vendored)
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/third_party/imgui)
@@ -92,9 +93,17 @@ if(WIN32)
     )
 
     if(TARGET imgui)
+        # Create resource file
+        add_custom_command(
+            OUTPUT ${CMAKE_BINARY_DIR}/gmscreen.res
+            COMMAND windres -I${CMAKE_SOURCE_DIR} -i ${CMAKE_SOURCE_DIR}/gmscreen.rc -o ${CMAKE_BINARY_DIR}/gmscreen.res
+            DEPENDS ${CMAKE_SOURCE_DIR}/gmscreen.rc ${CMAKE_SOURCE_DIR}/resource.h
+        )
+        
         add_executable(gmscreen_imgui_win32 WIN32
             src/gui/main_imgui.cpp
             src/gui/imgui_app.cpp
+            ${CMAKE_BINARY_DIR}/gmscreen.res
         )
 
         target_link_options(gmscreen_imgui_win32 PRIVATE -static -municode)
