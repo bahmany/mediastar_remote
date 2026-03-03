@@ -67,6 +67,8 @@ public:
                 f << ",\"pt\":" << ch.pilot_tones;
                 f << ",\"aa\":\"" << esc(ch.audio_pids_raw) << "\"";
                 f << ",\"sa\":\"" << esc(ch.subtitle_pids_raw) << "\"";
+                f << ",\"sx\":" << ch.satellite_index;
+                f << ",\"sn\":\"" << esc(ch.satellite_name) << "\"";
                 f << "}";
             }
             
@@ -224,6 +226,8 @@ private:
         ch.pilot_tones      = getIntVal(obj, "pt");
         ch.audio_pids_raw   = getVal(obj, "aa");
         ch.subtitle_pids_raw= getVal(obj, "sa");
+        ch.satellite_index  = getIntVal(obj, "sx", -1);
+        ch.satellite_name   = getVal(obj, "sn");
         // Legacy compat
         ch.program_id       = ch.service_id;
         ch.channel_type     = ch.is_radio ? 1 : 0;

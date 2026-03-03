@@ -1,0 +1,156 @@
+[*] Size: 8,558,561  SHA256: b3f13153c956ab1b...
+
+=== HEADER ANALYSIS ===
+  Bytes 0-3:   54 33 c2 81  = 'T3Â'
+  Bytes 4-7:   9b 77 20 ff  = LE u32: 4280317851
+  Bytes 8-11:  b9 05 d1 c4  = LE u32: 3302032825
+  Bytes 12-15: 77 1d fc 5f  = LE u32: 1610358135
+  Bytes 16-19: ff 8e 95 2a  = LE u32: 714444543
+  Bytes 20-23: 48 3b c2 0a  = LE u32: 180501320
+  +00: LE=2176987988 (0x81C23354)  BE=1412678273 (0x5433C281)
+  +04: LE=4280317851 (0xFF20779B)  BE=2608275711 (0x9B7720FF)
+  +08: LE=3302032825 (0xC4D105B9)  BE=3104166340 (0xB905D1C4)
+  +12: LE=1610358135 (0x5FFC1D77)  BE=1998453855 (0x771DFC5F)
+  +16: LE= 714444543 (0x2A958EFF)  BE=4287534378 (0xFF8E952A)
+  +20: LE= 180501320 (0x0AC23B48)  BE=1211875850 (0x483BC20A)
+  +24: LE=3023813472 (0xB43BBB60)  BE=1622883252 (0x60BB3BB4)
+  +28: LE=4012537588 (0xEF2A76F4)  BE=4101384943 (0xF4762AEF)
+  +32: LE=1294682574 (0x4D2B49CE)  BE=3460901709 (0xCE492B4D)
+  +36: LE=2129273447 (0x7EEA2267)  BE=1730341502 (0x6722EA7E)
+  +40: LE=2781373054 (0xA5C8627E)  BE=2120403109 (0x7E62C8A5)
+  +44: LE=3373767494 (0xC9179B46)  BE=1184569289 (0x469B17C9)
+  +48: LE=1158529444 (0x450DC1A4)  BE=2764115269 (0xA4C10D45)
+  +52: LE=2952179555 (0xAFF6AF63)  BE=1672476335 (0x63AFF6AF)
+  +56: LE= 521024004 (0x1F0E3204)  BE=  70389279 (0x04320E1F)
+  +60: LE=4235675435 (0xFC77472B)  BE= 726104060 (0x2B4777FC)
+
+=== 0xFF RUNS (section boundaries) ===
+  Found 14 0xFF gaps >= 64 bytes
+  GAP: 0x000003B6 - 0x000003FE  len=72  (0KB)
+  GAP: 0x00000762 - 0x0000092E  len=460  (0KB)
+  GAP: 0x0000587A - 0x00005C0E  len=916  (0KB)
+  GAP: 0x0002992E - 0x0004002E  len=91,904  (89KB)
+  GAP: 0x00040046 - 0x0004012E  len=232  (0KB)
+  GAP: 0x004AC37F - 0x0055B002  len=715,907  (699KB)
+  GAP: 0x005BB84C - 0x0075B002  len=1,701,814  (1661KB)
+  GAP: 0x0075BC44 - 0x0077B002  len=127,934  (124KB)
+  GAP: 0x0077C5F5 - 0x0079B002  len=125,453  (122KB)
+  GAP: 0x007AC7D6 - 0x0081B002  len=452,652  (442KB)
+  GAP: 0x0081E8E2 - 0x0081F1A3  len=2,241  (2KB)
+  GAP: 0x008257A8 - 0x00826222  len=2,682  (2KB)
+  GAP: 0x0082628E - 0x00826A0E  len=1,920  (1KB)
+  GAP: 0x008272B1 - 0x00827FEE  len=3,389  (3KB)
+
+=== SECTIONS BETWEEN GAPS ===
+  SECTION 0x00000000-0x000003B6  len=950  head=54 33 c2 81 9b 77 20 ff b9 05 d1 c4 77 1d fc 5f 'T3...w .....w.._'
+  SECTION 0x000003FE-0x00000762  len=868  head=10 d8 08 02 00 04 00 00 10 d8 08 01 01 00 00 00 '................'
+  SECTION 0x0000092E-0x0000587A  len=20,300  head=06 00 00 ea fe ff ff ea 4d 00 00 ea fe ff ff ea '........M.......'
+  SECTION 0x00005C0E-0x0002992E  len=146,720  head=08 18 54 e5 68 b0 d0 db b2 34 83 40 4b 14 d6 7c '..T.h....4.@K..|'
+  SECTION 0x0004012E-0x004AC37F  len=4,637,265  head=87 65 43 21 aa 41 ad a3 a3 ad 41 aa 00 00 00 00 '.eC!.A....A.....'
+  SECTION 0x0055B002-0x005BB84C  len=395,338  head=42 4d 50 53 02 00 00 00 03 00 00 00 18 00 00 00 'BMPS............'
+  SECTION 0x0075B002-0x0075BC44  len=3,138  head=3e 0c 00 00 ff fd 40 04 23 33 6c 92 49 25 26 53 '>.....@.#3l.I%&S'
+  SECTION 0x0077B002-0x0077C5F5  len=5,619  head=44 3a 00 00 eb 15 00 00 6c 00 00 80 00 44 3a 00 'D:......l....D:.'
+  SECTION 0x0079B002-0x007AC7D6  len=71,636  head=53 54 52 47 01 02 06 00 74 74 78 00 00 00 00 00 'STRG....ttx.....'
+  SECTION 0x0081B002-0x0081E8E2  len=14,560  head=06 0e 00 00 b8 dc 96 65 b4 83 0e 00 00 31 32 33 '.......e.....123'
+  SECTION 0x0081F1A3-0x008257A8  len=26,117  head=1f 00 00 d5 81 f9 4f 24 11 2d 62 1b 57 42 42 43 '......O$.-b.WBBC'
+  SECTION 0x00826222-0x0082628E  len=108  head=10 11 02 00 35 f6 b9 21 7c 2b a8 3f 38 c3 c1 fd '....5..!|+.?8...'
+  SECTION 0x00826A0E-0x008272B1  len=2,211  head=01 00 00 00 5f db 06 aa 13 64 e5 00 01 54 61 6e '...._....d...Tan'
+  SECTION 0x00827FEE-0x008297E1  len=6,131  head=e2 00 cd d6 ef 54 89 fa 8a 05 94 94 4d 7d 8d 4d '.....T......M}.M'
+
+=== GZIP AREA @ 0x580669 ===
+  32 bytes before: 2d c5 01 74 75 fc 53 1e 80 fc 7e 85 bc 27 3c 87
+  gzip header: 1f 8b 08 2d 4d 6f 01 f6 5a 47 73 0d 89 86 a4 2e
+  flags=0x2D mtime=4127289165 xfl=0x5A os=0x47
+  decompress failed: Error -3 while decompressing data: invalid distance too far back
+  stream decompress failed: Error -3 while decompressing data: invalid distance too far back
+
+=== XOR DECODE AROUND GZIP ===
+
+=== EMBEDDED ASCII STRINGS (no XOR, len>=15) ===
+  Found 1 strings
+  Protocol/keyword matches: 0
+
+  All long strings (top 200 by length):
+    [ 15] kcC@"nc8iZ5?@DA
+
+=== ENTROPY PER 4KB SECTION (first 80 sections) ===
+  blk 000 @ 0x00000000: ent=5.044 #####
+  blk 001 @ 0x00001000: ent=5.535 #####
+  blk 002 @ 0x00002000: ent=5.848 #####
+  blk 003 @ 0x00003000: ent=5.891 #####
+  blk 004 @ 0x00004000: ent=5.834 #####
+  blk 005 @ 0x00005000: ent=6.002 ######
+  blk 006 @ 0x00006000: ent=7.952 #######
+  blk 007 @ 0x00007000: ent=7.949 #######
+  blk 008 @ 0x00008000: ent=7.957 #######
+  blk 009 @ 0x00009000: ent=7.951 #######
+  blk 010 @ 0x0000A000: ent=7.958 #######
+  blk 011 @ 0x0000B000: ent=7.951 #######
+  blk 012 @ 0x0000C000: ent=7.955 #######
+  blk 013 @ 0x0000D000: ent=7.955 #######
+  blk 014 @ 0x0000E000: ent=7.954 #######
+  blk 015 @ 0x0000F000: ent=7.956 #######
+  blk 016 @ 0x00010000: ent=7.954 #######
+  blk 017 @ 0x00011000: ent=7.949 #######
+  blk 018 @ 0x00012000: ent=7.956 #######
+  blk 019 @ 0x00013000: ent=7.952 #######
+  blk 020 @ 0x00014000: ent=7.961 #######
+  blk 021 @ 0x00015000: ent=7.954 #######
+  blk 022 @ 0x00016000: ent=7.955 #######
+  blk 023 @ 0x00017000: ent=7.960 #######
+  blk 024 @ 0x00018000: ent=7.949 #######
+  blk 025 @ 0x00019000: ent=7.959 #######
+  blk 026 @ 0x0001A000: ent=7.952 #######
+  blk 027 @ 0x0001B000: ent=7.956 #######
+  blk 028 @ 0x0001C000: ent=7.957 #######
+  blk 029 @ 0x0001D000: ent=7.952 #######
+  blk 030 @ 0x0001E000: ent=7.946 #######
+  blk 031 @ 0x0001F000: ent=7.957 #######
+  blk 032 @ 0x00020000: ent=7.953 #######
+  blk 033 @ 0x00021000: ent=7.950 #######
+  blk 034 @ 0x00022000: ent=7.958 #######
+  blk 035 @ 0x00023000: ent=7.948 #######
+  blk 036 @ 0x00024000: ent=7.960 #######
+  blk 037 @ 0x00025000: ent=7.959 #######
+  blk 038 @ 0x00026000: ent=7.949 #######
+  blk 039 @ 0x00027000: ent=7.957 #######
+  blk 040 @ 0x00028000: ent=7.954 #######
+  blk 041 @ 0x00029000: ent=5.508 #####
+  blk 042 @ 0x0002A000: ent=0.000 
+  blk 043 @ 0x0002B000: ent=0.000 
+  blk 044 @ 0x0002C000: ent=0.000 
+  blk 045 @ 0x0002D000: ent=0.000 
+  blk 046 @ 0x0002E000: ent=0.000 
+  blk 047 @ 0x0002F000: ent=0.000 
+  blk 048 @ 0x00030000: ent=0.000 
+  blk 049 @ 0x00031000: ent=0.000 
+  blk 050 @ 0x00032000: ent=0.000 
+  blk 051 @ 0x00033000: ent=0.000 
+  blk 052 @ 0x00034000: ent=0.000 
+  blk 053 @ 0x00035000: ent=0.000 
+  blk 054 @ 0x00036000: ent=0.000 
+  blk 055 @ 0x00037000: ent=0.000 
+  blk 056 @ 0x00038000: ent=0.000 
+  blk 057 @ 0x00039000: ent=0.000 
+  blk 058 @ 0x0003A000: ent=0.000 
+  blk 059 @ 0x0003B000: ent=0.000 
+  blk 060 @ 0x0003C000: ent=0.000 
+  blk 061 @ 0x0003D000: ent=0.000 
+  blk 062 @ 0x0003E000: ent=0.000 
+  blk 063 @ 0x0003F000: ent=0.000 
+  blk 064 @ 0x00040000: ent=7.746 #######
+  blk 065 @ 0x00041000: ent=7.951 #######
+  blk 066 @ 0x00042000: ent=7.949 #######
+  blk 067 @ 0x00043000: ent=7.962 #######
+  blk 068 @ 0x00044000: ent=7.956 #######
+  blk 069 @ 0x00045000: ent=7.958 #######
+  blk 070 @ 0x00046000: ent=7.959 #######
+  blk 071 @ 0x00047000: ent=7.956 #######
+  blk 072 @ 0x00048000: ent=7.952 #######
+  blk 073 @ 0x00049000: ent=7.953 #######
+  blk 074 @ 0x0004A000: ent=7.944 #######
+  blk 075 @ 0x0004B000: ent=7.958 #######
+  blk 076 @ 0x0004C000: ent=7.958 #######
+  blk 077 @ 0x0004D000: ent=7.953 #######
+  blk 078 @ 0x0004E000: ent=7.952 #######
+  blk 079 @ 0x0004F000: ent=7.954 #######

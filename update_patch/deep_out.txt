@@ -1,0 +1,37 @@
+﻿[*] File size: 8,558,561 bytes
+[*] Header (32 bytes hex): 54 33 c2 81 9b 77 20 ff b9 05 d1 c4 77 1d fc 5f ff 8e 95 2a 48 3b c2 0a 60 bb 3b b4 f4 76 2a ef
+[*] 0xFF count: 3,253,227 (38.0%)
+[*] 0x00 count: 42,072
+
+[*] Trying XOR decode with 0x5B (known STB key)...
+    Decoded head (128 bytes): 0f 68 99 da c0 2c 7b a4 e2 5e 8a 9f 2c 46 a7 04 a4 d5 ce 71 13 60 99 51 3b e0 60 ef af 2d 71 b4 95 12 70 16 3c 79 b1 25 25 39 93 fe 1d c0 4c 92 ff 9a 56 1e 38 f4 ad f4 5f 69 55 44 70 1c 2c a7 8a bc 97 b6 08 ad 69 58 61 73 69 fd bc ac 01 f6 dd 1c 90 0f d7 7f e4 e4 4d 05 87 ed e5 17 5f be 73 e0 11 f4 84 ed d8 da 0c e4 67 67 75 6d 01 ca e1 ce 9d 5e 00 de 76 b4 b0 52 5e dc 9d b6 b5 cf
+    XOR 0x5B: .h...,{..^..,F.....q.`.Q;.`..-q.  | hex: 0f 68 99 da c0 2c 7b a4
+    XOR 0xFF: ..=~d...F..;.....qj...=..D.K....  | hex: ab cc 3d 7e 64 88 df 00
+    XOR 0xAA: ..h+1..U..{n..V.U$?...h.....^..E  | hex: fe 99 68 2b 31 dd 8a 55
+    XOR 0x55: .f..."u..P.."H.......n._5.n..#..  | hex: 01 66 97 d4 ce 22 75 aa
+    XOR 0x42: .q...5b..G..5_.....h.y.H".y..4h.  | hex: 16 71 80 c3 d9 35 62 bd
+    XOR 0x12: F!...e2.....e..M...8Z)..r.)..d8.  | hex: 46 21 d0 93 89 65 32 ed
+    XOR 0x20: t....W...%..W=......h..*@....V..  | hex: 74 13 e2 a1 bb 57 00 df
+    XOR 0x66: 2U....F..c...{.9...L.].l..]...L.  | hex: 32 55 a4 e7 fd 11 46 99
+
+[*] Scanning for gzip/zlib blocks...
+    Total candidate blocks: 330
+
+[*] Attempting decompression of first 20 blocks...
+
+[*] Checking if XOR-decoded file has readable content...
+    XOR 0x5B -> 15 strings in first 200KB, sample: ['H[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[', 'Z[4KySZZ[[[OySZZ[[[KySZ[[[[OySZ[[[[w', '[[dd[[dd[[[[[[[[[[dd[K[[w']
+    XOR 0xFF -> 2 strings in first 200KB, sample: ['R!R!R!R!R!R!', 'Ian 5 K#4 T~V}.']
+    XOR 0x42 -> 15 strings in first 200KB, sample: ['QBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB', 'CB-R`JCCBBBV`JCCBBBR`JCBBBBV`JCBBBBn', 'BB}}BB}}BBBBBBBBBB}}BRBBn']
+    XOR 0x66 -> 19 strings in first 200KB, sample: ['uffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', 'fnfff5ffffff', 'vDnggfffrDnggfffvDngffffrDngffffJ']
+
+[*] Total strings from all decompressed blocks: 0
+    Unique: 0
+
+[*] Protocol-related strings (0):
+
+[*] Long strings >= 25 chars (0):
+
+[*] Model/version strings (0):
+
+[DONE]

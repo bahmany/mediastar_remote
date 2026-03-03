@@ -295,8 +295,12 @@ void STBClient::doReconnect() {
                 } catch (...) {}
             }
             
-            // Wait before attempting
-            std::this_thread::sleep_for(std::chrono::milliseconds(RECONNECT_DELAY_MS * reconnect_attempt_));
+            // Exponential backoff: base * 2^(attempt-1), capped at max
+            int attempt = reconnect_attempt_.load();
+            int delay = RECONNECT_BASE_MS;
+            for (int i = 1; i < attempt && delay < RECONNECT_MAX_MS; ++i)
+                delay = std::min(delay * 2, RECONNECT_MAX_MS);
+            std::this_thread::sleep_for(std::chrono::milliseconds(delay));
             
             if (!auto_reconnect_) break;
 
@@ -337,7 +341,31 @@ bool STBClient::internalSendCommand(int cmd, const std::vector<std::map<std::str
         payload = protocol::XmlSerializer::serialize(cmd, params);
     }
     
-    return tcp_client_.sendFramed(payload);
+    uint64_t t0 = getCurrentTimeMs();
+    bool ok = tcp_client_.sendFramed(payload);
+    uint64_t elapsed = getCurrentTimeMs() - t0;
+
+    if (ok) last_activity_ms_ = t0;
+
+    {
+        std::lock_guard<std::mutex> lk(audit_mutex_);
+        cmd_audit_.push_back({t0, cmd, ok, static_cast<uint32_t>(elapsed)});
+        if (cmd_audit_.size() > 200)
+            cmd_audit_.pop_front();
+    }
+
+    return ok;
+}
+
+uint64_t STBClient::millisSinceLastActivity() const {
+    uint64_t last = last_activity_ms_.load();
+    if (last == 0) return UINT64_MAX;
+    return getCurrentTimeMs() - last;
+}
+
+std::vector<STBClient::CmdAuditEntry> STBClient::getCmdAudit() const {
+    std::lock_guard<std::mutex> lk(audit_mutex_);
+    return {cmd_audit_.begin(), cmd_audit_.end()};
 }
 
 Channel* STBClient::findChannel(int channel_index) {
@@ -354,6 +382,80 @@ bool STBClient::sendRemoteKey(int key_value) {
     
     return internalSendCommand(constants::GMS_MSG_DO_REMOTE_CONTROL, params);
 }
+
+// ── Platform helpers ──────────────────────────────────────────────────────
+bool STBClient::isP30Platform() const {
+    return login_info_ && login_info_->platformId() == 30;
+}
+int STBClient::platformId() const {
+    return login_info_ ? static_cast<int>(login_info_->platformId()) : 0;
+}
+
+// ── Typed navigation ──────────────────────────────────────────────────────
+bool STBClient::sendNavUp()    { return sendRemoteKey(isP30Platform() ? keys::p30::KEY_UP    : keys::KEY_UP);    }
+bool STBClient::sendNavDown()  { return sendRemoteKey(isP30Platform() ? keys::p30::KEY_DOWN  : keys::KEY_DOWN);  }
+bool STBClient::sendNavLeft()  { return sendRemoteKey(isP30Platform() ? keys::p30::KEY_LEFT  : keys::KEY_LEFT);  }
+bool STBClient::sendNavRight() { return sendRemoteKey(isP30Platform() ? keys::p30::KEY_RIGHT : keys::KEY_RIGHT); }
+bool STBClient::sendOk()       { return sendRemoteKey(isP30Platform() ? keys::p30::KEY_ENTER : keys::KEY_ENTER); }
+bool STBClient::sendBack()     { return sendRemoteKey(isP30Platform() ? keys::p30::KEY_BACK  : keys::KEY_BACK);  }
+bool STBClient::sendMenu()     { return sendRemoteKey(isP30Platform() ? keys::p30::KEY_MENU  : keys::KEY_MENU);  }
+
+// ── Channel / Volume ──────────────────────────────────────────────────────
+bool STBClient::sendChannelUp()   { return sendRemoteKey(isP30Platform() ? keys::p30::KEY_CH_UP   : keys::KEY_CH_UP);   }
+bool STBClient::sendChannelDown() { return sendRemoteKey(isP30Platform() ? keys::p30::KEY_CH_DOWN : keys::KEY_CH_DOWN); }
+bool STBClient::sendVolUp()       { return sendRemoteKey(isP30Platform() ? keys::p30::KEY_VOL_UP   : keys::KEY_VOL_UP);   }
+bool STBClient::sendVolDown()     { return sendRemoteKey(isP30Platform() ? keys::p30::KEY_VOL_DOWN : keys::KEY_VOL_DOWN); }
+bool STBClient::sendMute()        { return sendRemoteKey(isP30Platform() ? keys::p30::KEY_MUTE  : keys::KEY_MUTE);  }
+bool STBClient::sendRecall()      { return sendRemoteKey(isP30Platform() ? keys::p30::KEY_RECALL : keys::KEY_RECALL); }
+
+// ── Numeric ───────────────────────────────────────────────────────────────
+bool STBClient::sendNumericKey(int digit) {
+    if (digit < 0 || digit > 9) return false;
+    static const int def[10] = {
+        keys::KEY_0, keys::KEY_1, keys::KEY_2, keys::KEY_3, keys::KEY_4,
+        keys::KEY_5, keys::KEY_6, keys::KEY_7, keys::KEY_8, keys::KEY_9
+    };
+    static const int p30[10] = {
+        keys::p30::KEY_0, keys::p30::KEY_1, keys::p30::KEY_2, keys::p30::KEY_3, keys::p30::KEY_4,
+        keys::p30::KEY_5, keys::p30::KEY_6, keys::p30::KEY_7, keys::p30::KEY_8, keys::p30::KEY_9
+    };
+    return sendRemoteKey(isP30Platform() ? p30[digit] : def[digit]);
+}
+
+bool STBClient::sendNumericSequence(const std::string& digits, int delay_ms) {
+    bool ok = true;
+    for (char c : digits) {
+        if (c >= '0' && c <= '9') {
+            if (!sendNumericKey(c - '0')) ok = false;
+            if (delay_ms > 0)
+                std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+        }
+    }
+    return ok;
+}
+
+// ── Color buttons ─────────────────────────────────────────────────────────
+bool STBClient::sendColorKey(char color) {
+    switch (color) {
+        case 'R': case 'r': return sendRemoteKey(isP30Platform() ? keys::p30::KEY_RED    : keys::KEY_RED);
+        case 'G': case 'g': return sendRemoteKey(isP30Platform() ? keys::p30::KEY_GREEN  : keys::KEY_GREEN);
+        case 'Y': case 'y': return sendRemoteKey(isP30Platform() ? keys::p30::KEY_YELLOW : keys::KEY_YELLOW);
+        case 'B': case 'b': return sendRemoteKey(isP30Platform() ? keys::p30::KEY_BLUE   : keys::KEY_BLUE);
+        default:            return false;
+    }
+}
+
+// ── Info / EPG / Fav ──────────────────────────────────────────────────────
+bool STBClient::sendInfo()    { return sendRemoteKey(keys::KEY_INFO);    }
+bool STBClient::sendEpg()     { return sendRemoteKey(keys::KEY_EPG);     }
+bool STBClient::sendFav()     { return sendRemoteKey(keys::KEY_FAV);     }
+
+// ── Playback ──────────────────────────────────────────────────────────────
+bool STBClient::sendPlayPause()    { return sendRemoteKey(isP30Platform() ? keys::p30::KEY_PLAY_PAUSE    : keys::KEY_PLAY_PAUSE);    }
+bool STBClient::sendStop()         { return sendRemoteKey(isP30Platform() ? keys::p30::KEY_STOP          : keys::KEY_STOP);          }
+bool STBClient::sendRecord()       { return sendRemoteKey(isP30Platform() ? keys::p30::KEY_RECORD        : keys::KEY_RECORD);        }
+bool STBClient::sendRewind()       { return sendRemoteKey(isP30Platform() ? keys::p30::KEY_REWIND        : keys::KEY_REWIND);        }
+bool STBClient::sendFastForward()  { return sendRemoteKey(isP30Platform() ? keys::p30::KEY_FAST_FORWARD  : keys::KEY_FAST_FORWARD);  }
 
 bool STBClient::sendText(const std::string& text, bool force) {
     if (text.empty()) return true;
@@ -511,10 +613,22 @@ bool STBClient::changeChannel(int channel_index) {
 bool STBClient::changeChannelByProgramId(const std::string& program_id) {
     Channel* ch = processor_.state().findChannelByProgramId(program_id);
     if (!ch) {
-        return false;
+        return changeChannelDirect(program_id, 0);
     }
     
     return changeChannel(ch->service_index);
+}
+
+bool STBClient::changeChannelDirect(const std::string& program_id, int tv_state) {
+    if (program_id.empty()) return false;
+
+    std::vector<std::map<std::string, protocol::ParamValue>> params;
+    std::map<std::string, protocol::ParamValue> param;
+    param["TvState"] = std::to_string(tv_state);
+    param["ProgramId"] = program_id;
+    params.push_back(param);
+
+    return internalSendCommand(constants::GMS_MSG_DO_CHANNEL_SWITCH, params);
 }
 
 bool STBClient::requestCurrentChannel() {

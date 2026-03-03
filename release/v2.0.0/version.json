@@ -1,0 +1,1 @@
+{"version": "2.0.0", "build_date": "2026-03-03T15:48:00", "git_commit": "unknown", "build_type": "Release", "platform": "Windows x64", "dependencies": ["MSYS2 UCRT64", "ImGui", "Winsock2", "Static linking (no DLLs)"]}

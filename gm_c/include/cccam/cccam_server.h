@@ -9,11 +9,18 @@
 #include <thread>
 #include <vector>
 #include <mutex>
+#include <array>
 #include <cstring>
 #include <cstdlib>
 #include <ctime>
 #include <algorithm>
+#include <chrono>
+#include <fstream>
+#include <numeric>
 #include "stb/crash_log.h"
+#include "cccam/cccam_config.h"
+#include "cccam/cccam_learner.h"
+#include "ai/cw_predictor.h"
 
 #ifdef _WIN32
 #  ifndef WIN32_LEAN_AND_MEAN
@@ -31,6 +38,7 @@
 #else
 #  include <sys/socket.h>
 #  include <netinet/in.h>
+#  include <netinet/tcp.h>
 #  include <arpa/inet.h>
 #  include <unistd.h>
    using SockT = int;
@@ -138,6 +146,209 @@ enum CcMsg : uint8_t {
     MSG_NO_HEADER     = 0xF0  // internal: raw send, no 4-byte header
 };
 
+// ── TCP ping — test if host:port is reachable, returns ms or -1 ─────────────
+// Uses non-blocking connect + select for reliable timeout on all platforms.
+inline int tcpPing(const std::string& host, int port,
+                   const std::string& pxHost = "", int pxPort = 0, int timeoutMs = 3000)
+{
+    auto t0 = std::chrono::steady_clock::now();
+    SockT sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock == INVALID_SOCK) return -1;
+
+    // Determine target to connect to (proxy or direct)
+    std::string cHost = (!pxHost.empty() && pxPort > 0) ? pxHost : host;
+    int cPort = (!pxHost.empty() && pxPort > 0) ? pxPort : port;
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)cPort);
+    if (inet_pton(AF_INET, cHost.c_str(), &addr.sin_addr) != 1) {
+        struct addrinfo hints{}, *res = nullptr;
+        hints.ai_family = AF_INET; hints.ai_socktype = SOCK_STREAM;
+        if (getaddrinfo(cHost.c_str(), nullptr, &hints, &res) != 0 || !res) {
+            CLOSE_SOCK(sock); return -1;
+        }
+        addr.sin_addr = ((sockaddr_in*)res->ai_addr)->sin_addr;
+        freeaddrinfo(res);
+    }
+
+    // Set non-blocking
+#ifdef _WIN32
+    u_long nb = 1;
+    ioctlsocket(sock, FIONBIO, &nb);
+#else
+    int flags = fcntl(sock, F_GETFL, 0);
+    fcntl(sock, F_SETFL, flags | O_NONBLOCK);
+#endif
+
+    int cr = ::connect(sock, (sockaddr*)&addr, sizeof(addr));
+    if (cr < 0) {
+#ifdef _WIN32
+        if (WSAGetLastError() != WSAEWOULDBLOCK) { CLOSE_SOCK(sock); return -1; }
+#else
+        if (errno != EINPROGRESS) { CLOSE_SOCK(sock); return -1; }
+#endif
+        fd_set wset, eset;
+        FD_ZERO(&wset); FD_SET(sock, &wset);
+        FD_ZERO(&eset); FD_SET(sock, &eset);
+        timeval tv;
+        tv.tv_sec = timeoutMs / 1000;
+        tv.tv_usec = (timeoutMs % 1000) * 1000;
+        int sr = select((int)sock + 1, nullptr, &wset, &eset, &tv);
+        if (sr <= 0 || FD_ISSET(sock, &eset)) { CLOSE_SOCK(sock); return -1; }
+        // Check SO_ERROR
+        int serr = 0;
+        socklen_t slen = sizeof(serr);
+        getsockopt(sock, SOL_SOCKET, SO_ERROR, (char*)&serr, &slen);
+        if (serr != 0) { CLOSE_SOCK(sock); return -1; }
+    }
+
+    CLOSE_SOCK(sock);
+    auto t1 = std::chrono::steady_clock::now();
+    return (int)std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+}
+
+// ── Full CCcam handshake test ─────────────────────────────────────────────────
+// Performs the complete CCcam 2.x client handshake: TCP connect (or SOCKS5),
+// receive seed, derive ciphers, send hash+user+pass+CCcam, receive ACK,
+// then drain card announcements.
+// Returns: 0=OK, -1=TCP/SOCKS5 fail, -2=no seed (wrong protocol/port),
+//          -3=auth fail (handshake error or bad ACK).
+// cardsOut is set to the number of NEW_CARD messages received on success.
+inline int cccamFullTest(const UpstreamServer& srv, int& cardsOut, int timeoutMs = 5000)
+{
+    cardsOut = 0;
+    SockT sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock == INVALID_SOCK) return -1;
+
+    // Set socket send/recv timeout
+    auto setTo = [&](int ms) {
+#ifdef _WIN32
+        DWORD t = (DWORD)ms;
+        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char*)&t, sizeof(t));
+        setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (char*)&t, sizeof(t));
+#else
+        timeval t; t.tv_sec = ms/1000; t.tv_usec = (ms%1000)*1000;
+        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &t, sizeof(t));
+        setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &t, sizeof(t));
+#endif
+    };
+    setTo(timeoutMs);
+
+    auto sa = [&](const uint8_t* d, int n) -> bool {
+        int s = 0;
+        while (s < n) { int r = send(sock,(const char*)d+s,n-s,0); if(r<=0) return false; s+=r; }
+        return true;
+    };
+    auto ra = [&](uint8_t* d, int n) -> bool {
+        int g = 0;
+        while (g < n) { int r = recv(sock,(char*)d+g,n-g,0); if(r<=0) return false; g+=r; }
+        return true;
+    };
+    auto fail = [&](int code) -> int { CLOSE_SOCK(sock); return code; };
+
+    // ── Connect (direct or via SOCKS5) ────────────────────────────────────────
+    if (srv.hasProxy()) {
+        sockaddr_in pa{}; pa.sin_family = AF_INET;
+        pa.sin_port = htons((uint16_t)srv.proxy_port);
+        if (inet_pton(AF_INET, srv.proxy_host.c_str(), &pa.sin_addr) != 1) {
+            struct addrinfo hints{}, *res = nullptr;
+            hints.ai_family = AF_INET; hints.ai_socktype = SOCK_STREAM;
+            if (getaddrinfo(srv.proxy_host.c_str(), nullptr, &hints, &res) != 0 || !res)
+                return fail(-1);
+            pa.sin_addr = ((sockaddr_in*)res->ai_addr)->sin_addr;
+            freeaddrinfo(res);
+        }
+        if (::connect(sock, (sockaddr*)&pa, sizeof(pa)) < 0) return fail(-1);
+        // SOCKS5 negotiation
+        bool hasA = !srv.proxy_user.empty();
+        uint8_t greet[4] = {0x05, (uint8_t)(hasA?2:1), 0x00, 0x02};
+        if (!sa(greet, hasA?4:3)) return fail(-1);
+        uint8_t gresp[2]; if (!ra(gresp,2) || gresp[0]!=0x05) return fail(-1);
+        if (gresp[1]==0x02 && hasA) {
+            std::vector<uint8_t> auth; auth.push_back(0x01);
+            auth.push_back((uint8_t)srv.proxy_user.size());
+            auth.insert(auth.end(), srv.proxy_user.begin(), srv.proxy_user.end());
+            auth.push_back((uint8_t)srv.proxy_pass.size());
+            auth.insert(auth.end(), srv.proxy_pass.begin(), srv.proxy_pass.end());
+            if (!sa(auth.data(),(int)auth.size())) return fail(-1);
+            uint8_t ar[2]; if (!ra(ar,2) || ar[1]!=0x00) return fail(-1);
+        } else if (gresp[1]!=0x00) return fail(-1);
+        // SOCKS5 CONNECT (hostname)
+        std::vector<uint8_t> req;
+        req.push_back(0x05); req.push_back(0x01); req.push_back(0x00);
+        req.push_back(0x03); req.push_back((uint8_t)srv.host.size());
+        req.insert(req.end(), srv.host.begin(), srv.host.end());
+        req.push_back((uint8_t)(srv.port>>8)); req.push_back((uint8_t)(srv.port&0xFF));
+        if (!sa(req.data(),(int)req.size())) return fail(-1);
+        uint8_t rr[10]; if (!ra(rr,4) || rr[1]!=0x00) return fail(-1);
+        if      (rr[3]==0x01) { uint8_t d[6]; ra(d,6); }
+        else if (rr[3]==0x03) { uint8_t dl; ra(&dl,1); std::vector<uint8_t> d(dl+2); ra(d.data(),(int)d.size()); }
+        else if (rr[3]==0x04) { uint8_t d[18]; ra(d,18); }
+    } else {
+        sockaddr_in addr{}; addr.sin_family = AF_INET;
+        addr.sin_port = htons((uint16_t)srv.port);
+        if (inet_pton(AF_INET, srv.host.c_str(), &addr.sin_addr) != 1) {
+            struct addrinfo hints{}, *res = nullptr;
+            hints.ai_family = AF_INET; hints.ai_socktype = SOCK_STREAM;
+            if (getaddrinfo(srv.host.c_str(), nullptr, &hints, &res) != 0 || !res)
+                return fail(-1);
+            addr.sin_addr = ((sockaddr_in*)res->ai_addr)->sin_addr;
+            freeaddrinfo(res);
+        }
+        if (::connect(sock, (sockaddr*)&addr, sizeof(addr)) < 0) return fail(-1);
+    }
+
+    // ── CCcam client handshake ────────────────────────────────────────────────
+    uint8_t seed[16]; if (!ra(seed,16)) return fail(-2);  // no seed = wrong protocol/port
+
+    uint8_t cdata[16]; memcpy(cdata, seed, 16);
+    cc_crypt_xor(cdata);
+    uint8_t chash[20]; sha1(cdata, 16, chash);
+    CcCryptBlock sb{}, rb{};
+    rb.init(chash,20); rb.decrypt(cdata,16);
+    sb.init(cdata,16); sb.decrypt(chash,20);
+
+    uint8_t hc[20]; memcpy(hc,chash,20); sb.encrypt(hc,20);
+    if (!sa(hc,20)) return fail(-3);
+
+    uint8_t ub[20]={};
+    memcpy(ub, srv.user.data(), std::min(srv.user.size(), (size_t)19));
+    sb.encrypt(ub,20); if (!sa(ub,20)) return fail(-3);
+
+    if (!srv.pass.empty()) {
+        std::vector<uint8_t> pd(srv.pass.begin(), srv.pass.end());
+        sb.encrypt(pd.data(),(int)pd.size());
+    }
+    uint8_t cc6[6]={'C','C','c','a','m',0}; sb.encrypt(cc6,6);
+    if (!sa(cc6,6)) return fail(-3);
+
+    uint8_t ack[20]; if (!ra(ack,20)) return fail(-3);
+    rb.decrypt(ack,20);
+    if (memcmp(ack,"CCcam",5)!=0) return fail(-3);
+
+    // ── Auth OK — send CLI_DATA and drain card announcements (2s window) ──────
+    uint8_t cliHdr[4]={0,0x00,0,0}; sb.encrypt(cliHdr,4); sa(cliHdr,4);
+    setTo(2000);
+    for (int att = 0; att < 300; att++) {
+        uint8_t uh[4]; if (!ra(uh,4)) break;
+        rb.decrypt(uh,4);
+        uint16_t mlen = (uint16_t)((uh[2]<<8)|uh[3]);
+        if (mlen > 2048) break;
+        std::vector<uint8_t> um(mlen);
+        if (mlen>0 && !ra(um.data(),mlen)) break;
+        if (mlen>0) rb.decrypt(um.data(),mlen);
+        if      (uh[1]==0x07) cardsOut++;                           // MSG_NEW_CARD
+        else if (uh[1]==0x06) {                                     // MSG_KEEPALIVE
+            uint8_t ka[4]={0,0x06,0,0}; sb.encrypt(ka,4); sa(ka,4);
+        }
+        else if (uh[1]==0x08||uh[1]==0x00||uh[1]==0x04||uh[1]==0x05) {} // ok to skip
+        else break;
+    }
+    CLOSE_SOCK(sock);
+    return 0;
+}
+
 // ── Server ──────────────────────────────────────────────────────────────────
 class CccamServer {
 public:
@@ -147,20 +358,26 @@ public:
         int  port = 8000;
         std::string user = "a";
         std::string pass = "a";
-        // Upstream CCcam server for ECM forwarding
-        std::string upstream_host;
-        int  upstream_port = 0;
-        std::string upstream_user;
-        std::string upstream_pass;
-        bool hasUpstream() const { return !upstream_host.empty() && upstream_port > 0; }
+        bool log_ecm = true;
+        std::vector<UpstreamServer> servers;
+        bool hasUpstream() const {
+            for (auto& s : servers) if (s.enabled && s.valid()) return true;
+            return false;
+        }
     };
 
     Config              cfg;
+    CwLearner           learner;
     std::atomic<bool>   running{false};
     std::atomic<int>    clients{0};
     std::atomic<int>    ecmTotal{0};
     std::atomic<int>    ecmOk{0};
     std::atomic<int>    ecmFail{0};
+    std::atomic<int>    ecmCacheHits{0};
+    
+    // AI-powered CW prediction engine
+    ai::CwPredictor aiPredictor;
+    bool aiEnabled = true;  // Enable AI-assisted decryption
 
     std::string getStatus() {
         std::lock_guard<std::mutex> g(mu_);
@@ -171,6 +388,10 @@ public:
         if (running) return;
         log_ = cb;
         running = true;
+        learner.load();
+        aiPredictor.load();
+        aiPredictor.onLog = [this](const std::string& msg) { lg(msg); };
+        if (aiEnabled) aiPredictor.startOllamaAnalyzer();
         setStatus("Starting on port " + std::to_string(cfg.port));
         thread_ = std::thread(&CccamServer::serverLoop, this);
     }
@@ -178,6 +399,9 @@ public:
     void stop() {
         if (!running) return;
         running = false;
+        aiPredictor.stopOllamaAnalyzer();
+        learner.save();
+        aiPredictor.save();
         SockT tmp = socket(AF_INET, SOCK_STREAM, 0);
         if (tmp != INVALID_SOCK) {
             sockaddr_in a{}; a.sin_family=AF_INET; a.sin_port=htons((uint16_t)cfg.port);
@@ -196,13 +420,27 @@ private:
     LogCb       log_;
     std::mutex  mu_;
     std::string status_ = "Stopped";
+    std::mutex  ecmLogMu_;
+
+    // ── Per-upstream connection state ────────────────────────────────────────
+    struct UpConn {
+        UpstreamServer* srv = nullptr;  // non-const: updated with ping_status after connect
+        SockT        sock = INVALID_SOCK;
+        CcCryptBlock sendBlock{};
+        CcCryptBlock recvBlock{};
+        bool         connected = false;
+        int          cardCount = 0;
+        std::string  label;           // "name(host:port)"
+        std::string  failReason;      // why connectUpstream failed (for test_detail)
+    };
 
     void setStatus(const std::string& s) {
         std::lock_guard<std::mutex> g(mu_);
         status_ = s;
     }
     void lg(const std::string& s) {
-        setStatus(s);
+        std::lock_guard<std::mutex> g(mu_);
+        status_ = s;
         if (log_) log_("[CCcam] " + s);
         stb::CrashLog(("[CCcam] " + s).c_str());
     }
@@ -217,37 +455,24 @@ private:
         }
         return sent;
     }
-    bool lastRecvTimeout_ = false;
-    int recvAll(SockT s, uint8_t* d, int len) {
-        lastRecvTimeout_ = false;
+    static int recvAllT(SockT s, uint8_t* d, int len, bool* wasTimeout, int timeoutSec = 10) {
+        if (wasTimeout) *wasTimeout = false;
         int got=0;
         while(got<len) {
             fd_set fds; FD_ZERO(&fds); FD_SET(s, &fds);
-            timeval tv; tv.tv_sec = 30; tv.tv_usec = 0;
+            timeval tv; tv.tv_sec = timeoutSec; tv.tv_usec = 0;
             int sel = select((int)s + 1, &fds, nullptr, nullptr, &tv);
-            if (sel == 0) { lastRecvTimeout_ = true; return got; }
-            if (sel < 0) {
-#ifdef _WIN32
-                int e = WSAGetLastError();
-#else
-                int e = errno;
-#endif
-                if (log_) log_("[CCcam] select error=" + std::to_string(e));
-                return got;
-            }
+            if (sel == 0) { if (wasTimeout) *wasTimeout = true; return got; }
+            if (sel < 0) return got;
             int r=recv(s,(char*)d+got,len-got,0);
-            if(r<=0) {
-#ifdef _WIN32
-                int e = WSAGetLastError();
-#else
-                int e = errno;
-#endif
-                if (log_) log_("[CCcam] recv r=" + std::to_string(r) + " err=" + std::to_string(e) + " got=" + std::to_string(got) + "/" + std::to_string(len));
-                return got;
-            }
+            if(r<=0) return got;
             got+=r;
         }
         return got;
+    }
+    // Legacy wrapper (for handshake code that doesn't need timeout info)
+    static int recvAll(SockT s, uint8_t* d, int len) {
+        return recvAllT(s, d, len, nullptr, 10);
     }
 
     // Send encrypted CCcam message with 4-byte header [seq, cmd, len_hi, len_lo]
@@ -273,19 +498,23 @@ private:
     // Receive and decrypt a CCcam message. Returns total bytes (header+payload).
     // On success: hdr[0]=seq, hdr[1]=cmd, hdr[2..3]=len; payload in outBuf.
     // Returns -1 on error/timeout (cipher state preserved on header read failure).
-    int ccRecv(SockT sock, CcCryptBlock& recvBlock, uint8_t hdr[4],
-               uint8_t* outBuf, int outBufSize) {
+    // wasTimeout is set to true if the failure was a select timeout (not a real error).
+    static int ccRecv(SockT sock, CcCryptBlock& recvBlock, uint8_t hdr[4],
+               uint8_t* outBuf, int outBufSize, bool* wasTimeout = nullptr) {
+        if (wasTimeout) *wasTimeout = false;
         // Save cipher state before reading header, in case of timeout
         CcCryptBlock saved = recvBlock;
-        if (recvAll(sock, hdr, 4) != 4) {
+        bool hdrTimeout = false;
+        if (recvAllT(sock, hdr, 4, &hdrTimeout) != 4) {
             recvBlock = saved; // restore on failure
+            if (wasTimeout) *wasTimeout = hdrTimeout;
             return -1;
         }
         recvBlock.decrypt(hdr, 4);
         uint16_t msgLen = (uint16_t)((hdr[2] << 8) | hdr[3]);
         if (msgLen > outBufSize) return -1;
         if (msgLen > 0) {
-            if (recvAll(sock, outBuf, msgLen) != msgLen) return -1;
+            if (recvAllT(sock, outBuf, msgLen, nullptr) != msgLen) return -1;
             recvBlock.decrypt(outBuf, msgLen);
         }
         return 4 + msgLen;
@@ -350,14 +579,12 @@ private:
             lg("Client " + ip + " disconnected");
         };
 
-        // Set socket timeout for recv
-#ifdef _WIN32
-        DWORD tv=10000;
-        setsockopt(sock,SOL_SOCKET,SO_RCVTIMEO,(char*)&tv,sizeof(tv));
-#else
-        timeval tv{10,0};
-        setsockopt(sock,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof(tv));
-#endif
+        // Enable TCP keepalive + disable Nagle
+        {
+            int one = 1;
+            setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (char*)&one, sizeof(one));
+            setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, (char*)&one, sizeof(one));
+        }
 
         CcCryptBlock sendBlock{}, recvBlock{};
 
@@ -555,28 +782,53 @@ private:
             lg("Client " + ip + " announced " + std::to_string(cardId - 1) + " cards");
         }
 
-        // Connect to upstream CCcam server (if configured)
-        SockT upSock = INVALID_SOCK;
-        CcCryptBlock upSendBlock{}, upRecvBlock{};
-        bool upConnected = false;
-        if (cfg.hasUpstream()) {
-            upConnected = connectUpstream(upSock, upSendBlock, upRecvBlock);
-            if (upConnected)
-                lg("Upstream " + cfg.upstream_host + ":" + std::to_string(cfg.upstream_port) + " connected");
-            else
-                lg("Upstream connection FAILED - will send ECM_NOK2");
+        // Connect to all enabled upstream CCcam servers (in parallel)
+        std::vector<UpConn> upstreams;
+        for (auto& srv : cfg.servers) {
+            if (!srv.enabled || !srv.valid()) continue;
+            UpConn uc;
+            uc.srv = &srv;
+            uc.label = srv.name.empty()
+                ? (srv.host + ":" + std::to_string(srv.port))
+                : (srv.name + "(" + srv.host + ":" + std::to_string(srv.port) + ")");
+            upstreams.push_back(std::move(uc));
         }
-
-        lg("Client " + ip + " session ready, waiting for ECMs" +
-           (upConnected ? " (upstream relay ON)" : ""));
+        lg("Connecting " + std::to_string(upstreams.size()) + " upstreams in parallel...");
+        {
+            std::vector<std::thread> cthreads;
+            for (size_t i = 0; i < upstreams.size(); i++) {
+                cthreads.emplace_back([this, &upstreams, i]() {
+                    auto& uc = upstreams[i];
+                    uc.connected = connectUpstream(uc, *uc.srv);
+                });
+            }
+            for (auto& t : cthreads) if (t.joinable()) t.join();
+        }
+        int upOk = 0;
+        for (auto& u : upstreams) {
+            if (u.connected) {
+                upOk++;
+                u.srv->ping_status = 1;
+                u.srv->dead_since = 0;
+                u.srv->test_detail = "OK (" + std::to_string(u.cardCount) + " cards)";
+                lg("Upstream " + u.label + " OK (" + std::to_string(u.cardCount) + " cards)");
+            } else {
+                u.srv->ping_status = -1;
+                if (u.srv->dead_since == 0) u.srv->dead_since = time(nullptr);
+                u.srv->test_detail = u.failReason.empty() ? "CONNECT FAIL" : u.failReason;
+            }
+        }
+        lg("Client " + ip + " session ready, " + std::to_string(upOk) + "/" +
+           std::to_string(upstreams.size()) + " upstreams connected");
 
         // ECM / Keep-alive processing loop
         std::string lastEcmHex;
         int dupEcmCount = 0;
         while (running) {
-            r = ccRecv(sock, recvBlock, hdr, msgBuf, sizeof(msgBuf));
+            bool recvTimeout = false;
+            r = ccRecv(sock, recvBlock, hdr, msgBuf, sizeof(msgBuf), &recvTimeout);
             if (r < 0) {
-                if (lastRecvTimeout_) {
+                if (recvTimeout) {
                     if (!ccSend(sock, sendBlock, MSG_KEEPALIVE, nullptr, 0)) {
                         lg("Client " + ip + " keepalive send failed, disconnecting");
                         break;
@@ -624,29 +876,121 @@ private:
                         dupEcmCount++;
                     }
 
-                    // Forward ECM to upstream if connected
+                    // ── AI Cache lookup FIRST (zero upstream latency if hit) ──
                     bool cwSent = false;
-                    if (upConnected) {
-                        cwSent = forwardEcm(upSock, upSendBlock, upRecvBlock,
-                                            sock, sendBlock, hdr[0],
-                                            msgBuf, msgLen);
-                        if (cwSent) {
+                    if (aiEnabled && ecmLen > 0) {
+                        uint8_t cachedCw[16] = {};
+                        if (aiPredictor.cacheLookup(caid, sid, msgBuf+13, ecmLen, cachedCw)) {
+                            ccSend(sock, sendBlock, MSG_ECM_REQUEST, cachedCw, 16, hdr[0]);
+                            cwSent = true;
                             ecmOk++;
-                        } else {
-                            // Upstream failed, try reconnecting once
-                            lg("Upstream ECM forward failed, reconnecting...");
-                            if (upSock != INVALID_SOCK) CLOSE_SOCK(upSock);
-                            upSock = INVALID_SOCK;
-                            upConnected = connectUpstream(upSock, upSendBlock, upRecvBlock);
-                            if (upConnected) {
-                                cwSent = forwardEcm(upSock, upSendBlock, upRecvBlock,
-                                                    sock, sendBlock, hdr[0],
-                                                    msgBuf, msgLen);
-                                if (cwSent) ecmOk++;
+                            ecmCacheHits++;
+                            lg("[AI Cache] HIT CAID:" + hexU16(caid) + " SID:" + hexU16(sid));
+                        }
+                    }
+
+                    // Try learned CW prediction (pattern-based, no upstream needed)
+                    bool predUsed = false;
+                    bool predValidated = false;
+                    bool predMatched = false;
+                    std::array<uint8_t, 16> predCw{};
+                    if (!cwSent) {
+                        auto pred = learner.predict(caid, provid, sid, msgBuf + 13, ecmLen);
+                        if (pred.ok) {
+                            bool accept = pred.exact || pred.votes >= learner.minPatternVotes();
+                            if (accept) {
+                                predUsed = true;
+                                predCw = pred.cw;
+                                learner.markPredictionUsed(pred);
+                                ccSend(sock, sendBlock, MSG_ECM_REQUEST, predCw.data(), 16, hdr[0]);
+                                cwSent = true;
+                                ecmOk++;
+                                if (pred.exact) lg("CW predicted (exact match)");
+                                else lg("CW predicted (pattern votes=" + std::to_string(pred.votes) + ")");
                             }
                         }
                     }
 
+                    // ── AI Smart Router: sort upstreams by score for this CAID ──
+                    int connectedCount = 0;
+                    for (auto& uc : upstreams) if (uc.connected) connectedCount++;
+
+                    if (connectedCount == 0 && !cwSent) {
+                        if (ecmTotal.load() % 10 == 1)
+                            lg("ECM dropped: no upstreams connected (0/" +
+                               std::to_string(upstreams.size()) + ")");
+                    }
+
+                    // Build AI-ranked server order (best for this CAID first)
+                    std::vector<int> ecmOrder(upstreams.size());
+                    std::iota(ecmOrder.begin(), ecmOrder.end(), 0);
+                    if (aiEnabled && upstreams.size() > 1) {
+                        std::vector<std::string> labels;
+                        for (auto& uc : upstreams) labels.push_back(uc.label);
+                        aiPredictor.sortByScore(caid, ecmOrder, labels);
+                    }
+
+                    auto ecmStart = std::chrono::steady_clock::now();
+                    for (int ucIdx : ecmOrder) {
+                        auto& uc = upstreams[ucIdx];
+                        if (!uc.connected) continue;
+                        uint8_t cwBuf[16] = {};
+                        bool got = forwardEcmSingle(uc, msgBuf, msgLen, cwBuf);
+                        auto ecmEnd = std::chrono::steady_clock::now();
+                        float latencyMs = std::chrono::duration<float, std::milli>(ecmEnd - ecmStart).count();
+
+                        if (!got) {
+                            lg("Upstream " + uc.label + " ECM failed, disconnecting");
+                            uc.connected = false;
+                            if (uc.sock != INVALID_SOCK) { CLOSE_SOCK(uc.sock); uc.sock = INVALID_SOCK; }
+                        }
+                        // Feed learner + AI predictor
+                        learner.addSample(caid, provid, sid, msgBuf+13, ecmLen, got, cwBuf, uc.label);
+                        if (aiEnabled) {
+                            aiPredictor.learn(caid, sid, provid, msgBuf+13, ecmLen,
+                                              cwBuf, got, uc.label, latencyMs);
+                        }
+                        if (cfg.log_ecm)
+                            logEcmCw(caid, provid, sid, ecmLen, msgBuf+13, uc.label, got, cwBuf);
+
+                        if (got) {
+                            if (predUsed) {
+                                predValidated = true;
+                                bool match = (std::memcmp(predCw.data(), cwBuf, 16) == 0);
+                                predMatched = predMatched || match;
+                                if (!match)
+                                    ccSend(sock, sendBlock, MSG_ECM_REQUEST, cwBuf, 16, hdr[0]);
+                            }
+                            if (!cwSent) {
+                                // Store in AI cache for instant future responses
+                                if (aiEnabled)
+                                    aiPredictor.cacheStore(caid, sid, msgBuf+13, ecmLen, cwBuf, uc.label);
+                                lg("CW from " + uc.label + " -> STB");
+                                ccSend(sock, sendBlock, MSG_ECM_REQUEST, cwBuf, 16, hdr[0]);
+                                cwSent = true;
+                                ecmOk++;
+                            }
+                            break; // AI: first CW wins, stop trying other servers
+                        }
+                    }
+                    if (predUsed) {
+                        if (predValidated) learner.reportPredictionResult(predMatched);
+                        else learner.reportPredictionUnverified();
+                    }
+                    
+                    // AI fallback: try AI prediction if no CW from upstreams
+                    if (!cwSent && aiEnabled && connectedCount == 0) {
+                        uint8_t aiCw[16] = {};
+                        // First try fast pattern match
+                        if (aiPredictor.predictFast(caid, sid, msgBuf+13, ecmLen, aiCw)) {
+                            lg("[AI] CW predicted (fast pattern) -> forwarded to STB");
+                            ccSend(sock, sendBlock, MSG_ECM_REQUEST, aiCw, 16, hdr[0]);
+                            cwSent = true;
+                            ecmOk++;
+                            aiPredictor.predictions_correct++;
+                        }
+                    }
+                    
                     if (!cwSent) {
                         ecmFail++;
                         ccSend(sock, sendBlock, MSG_ECM_NOK2, nullptr, 0, hdr[0]);
@@ -663,8 +1007,9 @@ private:
                     uint16_t emmCaid = (uint16_t)((msgBuf[0] << 8) | msgBuf[1]);
                     lg("EMM CAID:" + hexU16(emmCaid) + " len:" + std::to_string(msgLen));
                 }
-                if (upConnected) {
-                    ccSend(upSock, upSendBlock, MSG_EMM_REQUEST, msgBuf, msgLen);
+                for (auto& uc : upstreams) {
+                    if (uc.connected)
+                        ccSend(uc.sock, uc.sendBlock, MSG_EMM_REQUEST, msgBuf, msgLen);
                 }
                 ccSend(sock, sendBlock, MSG_EMM_REQUEST, nullptr, 0);
 
@@ -682,189 +1027,364 @@ private:
                    " data:" + dmp + " from " + ip);
             }
         }
-        if (upSock != INVALID_SOCK) CLOSE_SOCK(upSock);
+        for (auto& uc : upstreams) {
+            if (uc.sock != INVALID_SOCK) CLOSE_SOCK(uc.sock);
+        }
         done();
     }
 
-    // ── Upstream CCcam client ─────────────────────────────────────────────────
-    bool connectUpstream(SockT& sock, CcCryptBlock& sBlock, CcCryptBlock& rBlock) {
-        sock = socket(AF_INET, SOCK_STREAM, 0);
-        if (sock == INVALID_SOCK) return false;
+    // ── SOCKS5 proxy connect ───────────────────────────────────────────────────
+    // NOTE: Called from parallel threads — uses only local helpers.
+    bool socks5Connect(SockT sock, const UpstreamServer& srv) {
+        // Thread-safe local helpers
+        auto sa = [](SockT s, const uint8_t* d, int len) -> int {
+            int sent = 0;
+            while (sent < len) { int r = send(s,(const char*)d+sent,len-sent,0); if(r<=0) return sent; sent+=r; }
+            return sent;
+        };
+        auto ra = [](SockT s, uint8_t* d, int len) -> int {
+            int got = 0;
+            while (got < len) { int r = recv(s,(char*)d+got,len-got,0); if(r<=0) return got; got+=r; }
+            return got;
+        };
 
-#ifdef _WIN32
-        DWORD utv = 8000;
-        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char*)&utv, sizeof(utv));
-        setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (char*)&utv, sizeof(utv));
-#else
-        timeval utv{8,0};
-        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &utv, sizeof(utv));
-        setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &utv, sizeof(utv));
-#endif
-
-        sockaddr_in addr{};
-        addr.sin_family = AF_INET;
-        addr.sin_port = htons((uint16_t)cfg.upstream_port);
-        if (inet_pton(AF_INET, cfg.upstream_host.c_str(), &addr.sin_addr) != 1) {
+        // Connect to SOCKS5 proxy first
+        sockaddr_in pa{};
+        pa.sin_family = AF_INET;
+        pa.sin_port = htons((uint16_t)srv.proxy_port);
+        if (inet_pton(AF_INET, srv.proxy_host.c_str(), &pa.sin_addr) != 1) {
             struct addrinfo hints{}, *res = nullptr;
-            hints.ai_family = AF_INET;
-            hints.ai_socktype = SOCK_STREAM;
-            if (getaddrinfo(cfg.upstream_host.c_str(), nullptr, &hints, &res) != 0 || !res) {
-                CLOSE_SOCK(sock); sock = INVALID_SOCK;
-                lg("Upstream DNS failed: " + cfg.upstream_host);
+            hints.ai_family = AF_INET; hints.ai_socktype = SOCK_STREAM;
+            if (getaddrinfo(srv.proxy_host.c_str(), nullptr, &hints, &res) != 0 || !res) {
+                lg("SOCKS5 DNS failed: " + srv.proxy_host);
                 return false;
             }
-            addr.sin_addr = ((sockaddr_in*)res->ai_addr)->sin_addr;
+            pa.sin_addr = ((sockaddr_in*)res->ai_addr)->sin_addr;
             freeaddrinfo(res);
         }
-
-        if (::connect(sock, (sockaddr*)&addr, sizeof(addr)) < 0) {
-            CLOSE_SOCK(sock); sock = INVALID_SOCK;
-            lg("Upstream connect failed");
+        if (::connect(sock, (sockaddr*)&pa, sizeof(pa)) < 0) {
+            lg("SOCKS5 proxy connect failed: " + srv.proxy_host);
             return false;
         }
-
-        // CCcam client handshake
-        // Step 1: Receive 16-byte seed from server
-        uint8_t seed[16];
-        if (recvAll(sock, seed, 16) != 16) {
-            CLOSE_SOCK(sock); sock = INVALID_SOCK;
-            lg("Upstream handshake: no seed");
+        // Auth method negotiation
+        bool hasAuth = !srv.proxy_user.empty();
+        uint8_t greet[4] = {0x05, (uint8_t)(hasAuth ? 2 : 1), 0x00};
+        if (hasAuth) greet[3] = 0x02;
+        if (sa(sock, greet, hasAuth ? 4 : 3) != (hasAuth ? 4 : 3)) return false;
+        uint8_t gresp[2];
+        if (ra(sock, gresp, 2) != 2 || gresp[0] != 0x05) return false;
+        if (gresp[1] == 0x02 && hasAuth) {
+            // Username/password auth (RFC 1929)
+            std::vector<uint8_t> auth;
+            auth.push_back(0x01);
+            auth.push_back((uint8_t)srv.proxy_user.size());
+            auth.insert(auth.end(), srv.proxy_user.begin(), srv.proxy_user.end());
+            auth.push_back((uint8_t)srv.proxy_pass.size());
+            auth.insert(auth.end(), srv.proxy_pass.begin(), srv.proxy_pass.end());
+            if (sa(sock, auth.data(), (int)auth.size()) != (int)auth.size()) return false;
+            uint8_t aresp[2];
+            if (ra(sock, aresp, 2) != 2 || aresp[1] != 0x00) {
+                lg("SOCKS5 auth failed"); return false;
+            }
+        } else if (gresp[1] != 0x00) {
+            lg("SOCKS5 unsupported auth method"); return false;
+        }
+        // CONNECT request — use domain name (type 0x03) for flexibility
+        std::vector<uint8_t> req;
+        req.push_back(0x05); req.push_back(0x01); req.push_back(0x00);
+        req.push_back(0x03); // domain name
+        req.push_back((uint8_t)srv.host.size());
+        req.insert(req.end(), srv.host.begin(), srv.host.end());
+        req.push_back((uint8_t)(srv.port >> 8));
+        req.push_back((uint8_t)(srv.port & 0xFF));
+        if (sa(sock, req.data(), (int)req.size()) != (int)req.size()) return false;
+        uint8_t rresp[10];
+        if (ra(sock, rresp, 4) != 4 || rresp[1] != 0x00) {
+            lg("SOCKS5 CONNECT failed, status=" + std::to_string(rresp[1]));
             return false;
         }
-
-        // Step 2: Client-side key setup
-        uint8_t cdata[16];
-        memcpy(cdata, seed, 16);
-        cc_crypt_xor(cdata);
-
-        uint8_t chash[20];
-        sha1(cdata, 16, chash);
-
-        // Client: recvBlock = init(hash), decrypt data
-        rBlock.init(chash, 20);
-        rBlock.decrypt(cdata, 16);
-
-        // Client: sendBlock = init(data), decrypt hash
-        sBlock.init(cdata, 16);
-        sBlock.decrypt(chash, 20);
-
-        // Step 3: Send hash to server (encrypted with sendBlock)
-        uint8_t hashCopy[20];
-        memcpy(hashCopy, chash, 20);
-        sBlock.encrypt(hashCopy, 20);
-        if (sendAll(sock, hashCopy, 20) != 20) {
-            CLOSE_SOCK(sock); sock = INVALID_SOCK;
-            return false;
+        // Drain bind address based on address type
+        if (rresp[3] == 0x01) { uint8_t d[6]; ra(sock, d, 6); }
+        else if (rresp[3] == 0x03) {
+            uint8_t dlen; ra(sock, &dlen, 1);
+            std::vector<uint8_t> d(dlen + 2); ra(sock, d.data(), dlen + 2);
         }
-
-        // Step 4: Send username (20 bytes, encrypted)
-        uint8_t userBuf[20] = {};
-        size_t ulen = std::min(cfg.upstream_user.size(), (size_t)19);
-        memcpy(userBuf, cfg.upstream_user.data(), ulen);
-        sBlock.encrypt(userBuf, 20);
-        if (sendAll(sock, userBuf, 20) != 20) {
-            CLOSE_SOCK(sock); sock = INVALID_SOCK;
-            return false;
-        }
-
-        // Step 5: Encrypt password to advance sendBlock cipher state (not sent)
-        if (!cfg.upstream_pass.empty()) {
-            std::vector<uint8_t> pwd(cfg.upstream_pass.begin(), cfg.upstream_pass.end());
-            sBlock.encrypt(pwd.data(), (int)pwd.size());
-        }
-
-        // Step 6: Send "CCcam\0" (6 bytes, encrypted)
-        uint8_t ccBuf[6] = {'C','C','c','a','m',0};
-        sBlock.encrypt(ccBuf, 6);
-        if (sendAll(sock, ccBuf, 6) != 6) {
-            CLOSE_SOCK(sock); sock = INVALID_SOCK;
-            return false;
-        }
-
-        // Step 7: Receive ACK (20 bytes)
-        uint8_t ackBuf[20];
-        if (recvAll(sock, ackBuf, 20) != 20) {
-            CLOSE_SOCK(sock); sock = INVALID_SOCK;
-            lg("Upstream auth failed (no ACK)");
-            return false;
-        }
-        rBlock.decrypt(ackBuf, 20);
-        if (memcmp(ackBuf, "CCcam", 5) != 0) {
-            CLOSE_SOCK(sock); sock = INVALID_SOCK;
-            lg("Upstream auth failed (bad ACK)");
-            return false;
-        }
-
-        // Step 8: Send CLI_DATA
-        ccSend(sock, sBlock, MSG_CLI_DATA, nullptr, 0);
-
-        // Step 9: Drain SRV_DATA and card announcements
-        uint8_t uhdr[4], umsgBuf[2048];
-        int cardCount = 0;
-#ifdef _WIN32
-        DWORD utv2 = 2000;
-        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char*)&utv2, sizeof(utv2));
-#else
-        timeval utv2{2,0};
-        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &utv2, sizeof(utv2));
-#endif
-        for (int attempt = 0; attempt < 200; attempt++) {
-            int ur = ccRecv(sock, rBlock, uhdr, umsgBuf, sizeof(umsgBuf));
-            if (ur < 0) break;
-            if (uhdr[1] == MSG_NEW_CARD) cardCount++;
-            else if (uhdr[1] == MSG_SRV_DATA) { /* ok */ }
-            else if (uhdr[1] == MSG_CLI_DATA) { /* ok */ }
-            else break;
-        }
-        lg("Upstream ready, received " + std::to_string(cardCount) + " cards");
-
-        // Restore longer timeout for ECM responses
-#ifdef _WIN32
-        utv = 10000;
-        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char*)&utv, sizeof(utv));
-#else
-        utv = {10,0};
-        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &utv, sizeof(utv));
-#endif
+        else if (rresp[3] == 0x04) { uint8_t d[18]; ra(sock, d, 18); }
+        lg("SOCKS5 tunnel established to " + srv.host + ":" + std::to_string(srv.port));
         return true;
     }
 
-    // Forward ECM to upstream and relay CW back to STB client
-    bool forwardEcm(SockT upSock, CcCryptBlock& upSend, CcCryptBlock& upRecv,
-                    SockT cliSock, CcCryptBlock& cliSend, uint8_t seq,
-                    const uint8_t* ecmData, uint16_t ecmLen) {
-        if (!ccSend(upSock, upSend, MSG_ECM_REQUEST, ecmData, ecmLen)) {
+    // ── Upstream CCcam client (multi-server) ─────────────────────────────────
+    // NOTE: This runs in parallel threads — uses only local send/recv helpers
+    //       to avoid any shared state. recvAllT/ccRecv are now static.
+    bool connectUpstream(UpConn& uc, const UpstreamServer& srv) {
+        uc.sock = socket(AF_INET, SOCK_STREAM, 0);
+        if (uc.sock == INVALID_SOCK) return false;
+
+        // TCP keepalive + no-delay
+        int one = 1;
+        setsockopt(uc.sock, SOL_SOCKET, SO_KEEPALIVE, (char*)&one, sizeof(one));
+        setsockopt(uc.sock, IPPROTO_TCP, TCP_NODELAY, (char*)&one, sizeof(one));
+
+        // Set socket-level recv timeout (5s for handshake)
+#ifdef _WIN32
+        DWORD rcvTo = 5000;
+        setsockopt(uc.sock, SOL_SOCKET, SO_RCVTIMEO, (char*)&rcvTo, sizeof(rcvTo));
+        setsockopt(uc.sock, SOL_SOCKET, SO_SNDTIMEO, (char*)&rcvTo, sizeof(rcvTo));
+#else
+        timeval rcvTo; rcvTo.tv_sec = 5; rcvTo.tv_usec = 0;
+        setsockopt(uc.sock, SOL_SOCKET, SO_RCVTIMEO, &rcvTo, sizeof(rcvTo));
+        setsockopt(uc.sock, SOL_SOCKET, SO_SNDTIMEO, &rcvTo, sizeof(rcvTo));
+#endif
+
+        // Thread-local send/recv helpers — no shared state
+        auto localSendAll = [](SockT s, const uint8_t* d, int len) -> int {
+            int sent = 0;
+            while (sent < len) {
+                int r = send(s, (const char*)d + sent, len - sent, 0);
+                if (r <= 0) return sent;
+                sent += r;
+            }
+            return sent;
+        };
+        auto localRecvAll = [](SockT s, uint8_t* d, int len) -> int {
+            int got = 0;
+            while (got < len) {
+                int r = recv(s, (char*)d + got, len - got, 0);
+                if (r <= 0) return got;
+                got += r;
+            }
+            return got;
+        };
+        auto fail = [&](const std::string& reason) -> bool {
+            lg("Upstream " + reason + ": " + srv.host + ":" + std::to_string(srv.port));
+            uc.failReason = reason;
+            CLOSE_SOCK(uc.sock); uc.sock = INVALID_SOCK;
             return false;
-        }
+        };
 
-        // Wait for response (CW or NOK)
-        uint8_t uhdr[4], ubuf[256];
-        int ur = ccRecv(upSock, upRecv, uhdr, ubuf, sizeof(ubuf));
-        if (ur < 0) return false;
-
-        uint8_t rcmd = uhdr[1];
-        uint16_t rlen = (uint16_t)((uhdr[2] << 8) | uhdr[3]);
-
-        if (rcmd == MSG_ECM_REQUEST && rlen >= 16) {
-            // CW response: 16 bytes (8 even + 8 odd control words)
-            lg("CW received from upstream, relaying to STB");
-            ccSend(cliSock, cliSend, MSG_ECM_REQUEST, ubuf, rlen, seq);
-            return true;
-        } else if (rcmd == MSG_KEEPALIVE) {
-            // Keepalive during ECM wait, try reading once more
-            ccSend(upSock, upSend, MSG_KEEPALIVE, nullptr, 0);
-            ur = ccRecv(upSock, upRecv, uhdr, ubuf, sizeof(ubuf));
-            if (ur > 0 && uhdr[1] == MSG_ECM_REQUEST) {
-                rlen = (uint16_t)((uhdr[2] << 8) | uhdr[3]);
-                if (rlen >= 16) {
-                    lg("CW received (after keepalive), relaying");
-                    ccSend(cliSock, cliSend, MSG_ECM_REQUEST, ubuf, rlen, seq);
-                    return true;
+        if (srv.hasProxy()) {
+            if (!socks5Connect(uc.sock, srv)) {
+                uc.failReason = "SOCKS5 FAIL";
+                CLOSE_SOCK(uc.sock); uc.sock = INVALID_SOCK;
+                return false;
+            }
+        } else {
+            // Direct connect
+            sockaddr_in addr{};
+            addr.sin_family = AF_INET;
+            addr.sin_port = htons((uint16_t)srv.port);
+            if (inet_pton(AF_INET, srv.host.c_str(), &addr.sin_addr) != 1) {
+                struct addrinfo hints{}, *res = nullptr;
+                hints.ai_family = AF_INET; hints.ai_socktype = SOCK_STREAM;
+                if (getaddrinfo(srv.host.c_str(), nullptr, &hints, &res) != 0 || !res) {
+                    return fail("DNS failed");
                 }
+                addr.sin_addr = ((sockaddr_in*)res->ai_addr)->sin_addr;
+                freeaddrinfo(res);
+            }
+            if (::connect(uc.sock, (sockaddr*)&addr, sizeof(addr)) < 0) {
+                return fail("TCP connect failed");
             }
         }
 
+        // CCcam client handshake — using local helpers only
+        uint8_t seed[16];
+        if (localRecvAll(uc.sock, seed, 16) != 16) {
+            return fail("no seed (not a CCcam server?)");
+        }
+
+        uint8_t cdata[16];
+        memcpy(cdata, seed, 16);
+        cc_crypt_xor(cdata);
+        uint8_t chash[20];
+        sha1(cdata, 16, chash);
+
+        uc.recvBlock.init(chash, 20);
+        uc.recvBlock.decrypt(cdata, 16);
+        uc.sendBlock.init(cdata, 16);
+        uc.sendBlock.decrypt(chash, 20);
+
+        // Send hash
+        uint8_t hashCopy[20];
+        memcpy(hashCopy, chash, 20);
+        uc.sendBlock.encrypt(hashCopy, 20);
+        if (localSendAll(uc.sock, hashCopy, 20) != 20) {
+            return fail("send hash failed");
+        }
+
+        // Send username
+        uint8_t userBuf[20] = {};
+        size_t ulen = std::min(srv.user.size(), (size_t)19);
+        memcpy(userBuf, srv.user.data(), ulen);
+        uc.sendBlock.encrypt(userBuf, 20);
+        if (localSendAll(uc.sock, userBuf, 20) != 20) {
+            return fail("send user failed");
+        }
+
+        // Advance cipher with password
+        if (!srv.pass.empty()) {
+            std::vector<uint8_t> pwd(srv.pass.begin(), srv.pass.end());
+            uc.sendBlock.encrypt(pwd.data(), (int)pwd.size());
+        }
+
+        // Send "CCcam\0"
+        uint8_t ccBuf[6] = {'C','C','c','a','m',0};
+        uc.sendBlock.encrypt(ccBuf, 6);
+        if (localSendAll(uc.sock, ccBuf, 6) != 6) {
+            return fail("send CCcam marker failed");
+        }
+
+        // Receive ACK (20 bytes)
+        uint8_t ackBuf[20];
+        if (localRecvAll(uc.sock, ackBuf, 20) != 20) {
+            return fail("auth failed (no ACK, server closed connection - bad user/pass?)");
+        }
+        uc.recvBlock.decrypt(ackBuf, 20);
+        if (memcmp(ackBuf, "CCcam", 5) != 0) {
+            return fail("auth failed (bad ACK content - wrong password?)");
+        }
+
+        lg("Upstream auth OK: " + srv.host + ":" + std::to_string(srv.port) +
+           " user=" + srv.user);
+
+        // Send CLI_DATA (using local send since ccSend uses shared sendBlock encryption
+        //   but here we own uc.sendBlock exclusively)
+        {
+            uint8_t cliHdr[4] = {0, MSG_CLI_DATA, 0, 0};
+            uc.sendBlock.encrypt(cliHdr, 4);
+            localSendAll(uc.sock, cliHdr, 4);
+        }
+
+        // Switch to longer timeout for card drain phase
+#ifdef _WIN32
+        DWORD drainTo = 3000;
+        setsockopt(uc.sock, SOL_SOCKET, SO_RCVTIMEO, (char*)&drainTo, sizeof(drainTo));
+#else
+        timeval drainTo; drainTo.tv_sec = 3; drainTo.tv_usec = 0;
+        setsockopt(uc.sock, SOL_SOCKET, SO_RCVTIMEO, &drainTo, sizeof(drainTo));
+#endif
+
+        // Drain SRV_DATA + cards using local recv
+        uc.cardCount = 0;
+        for (int attempt = 0; attempt < 500; attempt++) {
+            uint8_t uhdr[4];
+            if (localRecvAll(uc.sock, uhdr, 4) != 4) break;
+            uc.recvBlock.decrypt(uhdr, 4);
+            uint16_t mlen = (uint16_t)((uhdr[2] << 8) | uhdr[3]);
+            if (mlen > 2048) break;
+            uint8_t umsgBuf[2048];
+            if (mlen > 0) {
+                if (localRecvAll(uc.sock, umsgBuf, mlen) != (int)mlen) break;
+                uc.recvBlock.decrypt(umsgBuf, mlen);
+            }
+            uint8_t ucmd = uhdr[1];
+            if (ucmd == MSG_NEW_CARD) uc.cardCount++;
+            else if (ucmd == MSG_SRV_DATA || ucmd == MSG_CLI_DATA) { }
+            else if (ucmd == MSG_KEEPALIVE) {
+                uint8_t ka[4] = {0, MSG_KEEPALIVE, 0, 0};
+                uc.sendBlock.encrypt(ka, 4);
+                localSendAll(uc.sock, ka, 4);
+            }
+            else if (ucmd == MSG_CMD_05 || ucmd == MSG_CARD_REMOVED) { }
+            else break;
+        }
+
+        // Set final timeout for ECM forwarding phase (10s)
+#ifdef _WIN32
+        DWORD ecmTo = 10000;
+        setsockopt(uc.sock, SOL_SOCKET, SO_RCVTIMEO, (char*)&ecmTo, sizeof(ecmTo));
+#else
+        timeval ecmTo; ecmTo.tv_sec = 10; ecmTo.tv_usec = 0;
+        setsockopt(uc.sock, SOL_SOCKET, SO_RCVTIMEO, &ecmTo, sizeof(ecmTo));
+#endif
+
+        lg("Upstream connected: " + srv.host + ":" + std::to_string(srv.port) +
+           " cards=" + std::to_string(uc.cardCount));
+        return true;
+    }
+
+    // ── Forward single ECM, return CW in cwOut[16] ──────────────────────────
+    bool forwardEcmSingle(UpConn& uc, const uint8_t* ecmData, uint16_t ecmLen,
+                          uint8_t cwOut[16]) {
+        if (!ccSend(uc.sock, uc.sendBlock, MSG_ECM_REQUEST, ecmData, ecmLen)) {
+            lg("fwdECM " + uc.label + ": send failed");
+            return false;
+        }
+
+        uint8_t uhdr[4], ubuf[512];
+        for (int tries = 0; tries < 10; tries++) {
+            bool recvTo = false;
+            int ur = ccRecv(uc.sock, uc.recvBlock, uhdr, ubuf, sizeof(ubuf), &recvTo);
+            if (ur < 0) {
+                lg("fwdECM " + uc.label + ": recv fail try=" + std::to_string(tries) +
+                   " timeout=" + std::to_string(recvTo));
+                if (recvTo) continue;  // timeout is not fatal, keep trying
+                return false;
+            }
+            uint8_t rcmd = uhdr[1];
+            uint16_t rlen = (uint16_t)((uhdr[2] << 8) | uhdr[3]);
+
+            if (rcmd == MSG_ECM_REQUEST && rlen >= 16) {
+                memcpy(cwOut, ubuf, 16);
+                return true;
+            } else if (rcmd == MSG_ECM_NOK1 || rcmd == MSG_ECM_NOK2) {
+                lg("fwdECM " + uc.label + ": ECM_NOK cmd=0x" + hexU16(rcmd));
+                return false;
+            } else if (rcmd == MSG_KEEPALIVE) {
+                ccSend(uc.sock, uc.sendBlock, MSG_KEEPALIVE, nullptr, 0);
+            } else if (rcmd == MSG_NEW_CARD || rcmd == MSG_CARD_REMOVED ||
+                       rcmd == MSG_CMD_05 || rcmd == MSG_SRV_DATA) {
+                continue;
+            } else {
+                lg("fwdECM " + uc.label + ": unexpected cmd=0x" + hexU16(rcmd) +
+                   " len=" + std::to_string(rlen));
+                return false;
+            }
+        }
+        lg("fwdECM " + uc.label + ": exhausted retries");
         return false;
+    }
+
+    // ── Log ECM request + CW response to CSV for training ───────────────────
+    void logEcmCw(uint16_t caid, uint32_t provid, uint16_t sid,
+                  int ecmLen, const uint8_t* ecmBody,
+                  const std::string& serverLabel, bool gotCw, const uint8_t cw[16]) {
+        std::lock_guard<std::mutex> g(ecmLogMu_);
+        try {
+            static std::string logPath = CccamConfig::ecmLogPath();
+            bool isNew = false;
+            {   std::ifstream test(logPath);
+                isNew = !test.good() || test.peek() == std::ifstream::traits_type::eof();
+            }
+            std::ofstream f(logPath, std::ios::app);
+            if (!f.is_open()) return;
+            if (isNew)
+                f << "time,server,caid,provid,sid,ecm_len,ecm_hex,cw_ok,cw_hex\n";
+            // Timestamp
+            auto now = std::chrono::system_clock::now();
+            auto t = std::chrono::system_clock::to_time_t(now);
+            char ts[32]; std::strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", std::localtime(&t));
+            f << ts << ",";
+            f << "\"" << serverLabel << "\",";
+            char hx[12];
+            snprintf(hx, sizeof(hx), "%04X", caid); f << hx << ",";
+            snprintf(hx, sizeof(hx), "%08X", provid); f << hx << ",";
+            snprintf(hx, sizeof(hx), "%04X", sid); f << hx << ",";
+            f << ecmLen << ",";
+            // ECM body hex (first 32 bytes)
+            int showN = std::min(ecmLen, 32);
+            for (int i = 0; i < showN; i++) {
+                snprintf(hx, sizeof(hx), "%02X", ecmBody[i]); f << hx;
+            }
+            f << "," << (gotCw ? "1" : "0") << ",";
+            if (gotCw) {
+                for (int i = 0; i < 16; i++) {
+                    snprintf(hx, sizeof(hx), "%02X", cw[i]); f << hx;
+                }
+            }
+            f << "\n";
+        } catch (...) {}
     }
 };
 

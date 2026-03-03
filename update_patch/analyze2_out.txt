@@ -1,0 +1,33 @@
+﻿powershell : You cannot call a method on a null-valued expression.
+At line:1 char:1
++ powershell -ExecutionPolicy Bypass -File "D:\projects\gmscreen\update ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (You cannot call...ued expression.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+At D:\projects\gmscreen\update_patch\analyze2.ps1:3 char:1
++ $text = [System.Text.Encoding]::Latin1.GetString($b)
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : InvalidOperation: (:) [], RuntimeException
+    + FullyQualifiedErrorId : InvokeMethodOnNull
+ 
+SIZE: 8558561
+HEAD_HEX: 54 33 C2 81 9B 77 20 FF B9 05 D1 C4 77 1D FC 5F FF 8E 95 2A 48 3B C2 0A 60 BB 3B B4 F4 76 2A EF
+
+=== SIGNATURES ===
+  gzip  found at: 0x580669
+  zlib_78DA  found at: 0x7502, 0x1B010, 0x1C5A8, 0x5DB57, 0x5E76E, 0x7D417, 0x8005E, 0x88C94, 0x8E1EC, 0x9B5E8
+  zlib_789C  found at: 0x12474, 0x44645, 0x5038F, 0x5474E, 0x5CC8A, 0x69B49, 0x82A20, 0x8DA5F, 0x8EF45, 0xA0025
+
+=== PROTOCOL / COMMAND STRINGS (context: KeyValue/ProgramId/etc) ===
+
+=== URLS / IPs / HOSTS ===
+
+=== VERSION / MODEL STRINGS ===
+
+=== LONG STRINGS (>=30 chars, readable) ===
+
+=== BYTE DISTRIBUTION (first 256 offsets, count non-zero byte values) ===
+  Non-zero byte values: 256 / 256
+  Zero bytes: 42072
+  0xFF bytes: 3253227

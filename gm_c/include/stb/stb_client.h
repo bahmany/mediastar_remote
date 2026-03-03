@@ -2,9 +2,11 @@
 
 #include <string>
 #include <vector>
+#include <deque>
 #include <memory>
 #include <functional>
 #include <atomic>
+#include <mutex>
 #include <thread>
 #include <future>
 
@@ -106,6 +108,46 @@ public:
      * @return true on success
      */
     bool sendRemoteKey(int key_value);
+
+    // ---- Platform helpers ----
+    bool isP30Platform() const;
+    int  platformId()    const;
+
+    // ---- Typed navigation ----
+    bool sendNavUp();
+    bool sendNavDown();
+    bool sendNavLeft();
+    bool sendNavRight();
+    bool sendOk();
+    bool sendBack();
+    bool sendMenu();
+
+    // ---- Channel / Volume ----
+    bool sendChannelUp();
+    bool sendChannelDown();
+    bool sendVolUp();
+    bool sendVolDown();
+    bool sendMute();
+    bool sendRecall();
+
+    // ---- Numeric ----
+    bool sendNumericKey(int digit);   // 0-9
+    bool sendNumericSequence(const std::string& digits, int delay_ms = 300);
+
+    // ---- Color buttons ----
+    bool sendColorKey(char color);    // 'R','G','Y','B'
+
+    // ---- Info / EPG / Fav ----
+    bool sendInfo();
+    bool sendEpg();
+    bool sendFav();
+
+    // ---- Playback ----
+    bool sendPlayPause();
+    bool sendStop();
+    bool sendRecord();
+    bool sendRewind();
+    bool sendFastForward();
     
     /**
      * @brief Send text input (for keyboard)
@@ -171,6 +213,15 @@ public:
      * @return true on success
      */
     bool changeChannelByProgramId(const std::string& program_id);
+
+    /**
+     * @brief Change channel directly using a program ID and TV/Radio flag
+     *        (does not require channel list to be loaded).
+     * @param program_id Program ID (ServiceID)
+     * @param tv_state 0=TV, 1=Radio
+     * @return true on success
+     */
+    bool changeChannelDirect(const std::string& program_id, int tv_state = 0);
     
     /**
      * @brief Request current playing channel info
@@ -302,6 +353,25 @@ public:
      * @brief Get last error message
      */
     std::string getLastError() const;
+
+    /**
+     * @brief Milliseconds since last successful command was sent (for keepalive logic)
+     */
+    uint64_t millisSinceLastActivity() const;
+
+    // ==================== Command Audit Log ====================
+
+    struct CmdAuditEntry {
+        uint64_t timestamp_ms;  // steady_clock milliseconds
+        int      cmd_id;
+        bool     tcp_ok;
+        uint32_t latency_ms;
+    };
+
+    /**
+     * @brief Get a snapshot of the recent command audit log (last 200 entries)
+     */
+    std::vector<CmdAuditEntry> getCmdAudit() const;
     
     // ==================== Static Helpers ====================
     
@@ -326,13 +396,21 @@ private:
     std::unique_ptr<GsMobileLoginInfo> login_info_;
     std::string last_error_;
     
-    // Reconnection
+    // Reconnection (exponential backoff: delay = min(BASE * 2^attempt, CAP))
     std::atomic<bool> auto_reconnect_{true};
     std::atomic<int> reconnect_attempt_{0};
     static constexpr int MAX_RECONNECT_ATTEMPTS = 10;
-    static constexpr int RECONNECT_DELAY_MS = 1000;
+    static constexpr int RECONNECT_BASE_MS  = 1000;   // 1 s base
+    static constexpr int RECONNECT_MAX_MS   = 30000;  // 30 s cap
     std::thread reconnect_thread_;
     std::atomic<bool> reconnecting_{false};
+
+    // Keepalive tracking
+    std::atomic<uint64_t> last_activity_ms_{0};
+
+    // Command audit log (rolling, last 200 entries)
+    mutable std::mutex audit_mutex_;
+    std::deque<CmdAuditEntry> cmd_audit_;
     
     // Callbacks
     ConnectionCallback connection_callback_;

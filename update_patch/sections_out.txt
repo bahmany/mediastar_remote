@@ -1,0 +1,2949 @@
+
+======================================================================
+SECTION: HDR_950b  @ 0x00000000-0x000003B6  len=950
+  hex: 54 33 c2 81 9b 77 20 ff b9 05 d1 c4 77 1d fc 5f ff 8e 95 2a 48 3b c2 0a 60 bb 3b b4 f4 76 2a ef ce 49 2b 4d 67 22 ea 7e 7e 62 c8 a5 46 9b 17 c9
+  asc: T3...w .....w.._...*H;..`.;..v*..I+Mg".~~b..F...
+  String count: 1
+    [  6] 93UHGx
+
+======================================================================
+SECTION: BOOT_TABLE  @ 0x000003FE-0x00000762  len=868
+  hex: 10 d8 08 02 00 04 00 00 10 d8 08 01 01 00 00 00 f8 01 00 6f 10 22 08 01 01 00 00 00 14 22 08 01 01 00 00 00 10 22 08 01 00 00 00 00 14 22 08 01
+  asc: ...................o."......."......."......."..
+  String count: 1
+    [  8] dddddddd
+
+======================================================================
+SECTION: ARM_CODE  @ 0x0000092E-0x0000587A  len=20,300
+  hex: 06 00 00 ea fe ff ff ea 4d 00 00 ea fe ff ff ea fe ff ff ea fe ff ff ea fe ff ff ea fe ff ff ea 10 0f 11 ee 01 00 c0 e3 10 0f 01 ee 10 0f 11 ee
+  asc: ........M.......................................
+  String count: 0
+
+======================================================================
+SECTION: SECTION_A  @ 0x00005C0E-0x0002992E  len=146,720
+  hex: 08 18 54 e5 68 b0 d0 db b2 34 83 40 4b 14 d6 7c 09 4d ac 53 3f 34 d9 5a e4 58 e7 9a 8d 8e 57 04 1d 16 b3 ac c6 87 74 70 38 db e2 c7 32 86 03 d6
+  asc: ..T.h....4.@K..|.M.S?4.Z.X....W.......tp8...2...
+  String count: 231
+    [  8] 9'h7M!ha
+    [  6] Pu7$2>
+    [  9] I^CqK1Iwx
+    [  6] DH8Y1N
+    [  6] )y/c-~
+    [  6] U} \X#
+    [  9] S=J8h], 3
+    [  8] \]~k'<D3
+    [  6] f*?r)F
+    [  6] R5G5J(
+    [  6] }fm6<P
+    [  6] $N| ;n
+    [  8] E=I.X*h(
+    [  9] zv2C>]xpD
+    [  6] HOJ"xl
+    [  8] uxjx6T(b
+    [  6] hl+]`V
+    [  7] ,vGwY$C
+    [  7] 6j_I27T
+    [  6] g&"bfp
+    [  9] DwP/__fA2
+    [  7] yvdtu;[
+    [  6] tF"45`
+    [  7] z@Hd7Ol
+    [  6] -R\ 0H
+    [  6] gd.{Db
+    [  6] rYO5K!
+    [  6] -=ut=9
+    [  6] ')oH.w
+    [  7] ;;fZ53V
+    [  7] *2Mq>;8
+    [  6] J07,M&
+    [  6] SfpY5:
+    [  6] T|yE=a
+    [  6] {:FGZw
+    [  6] F7A[e 
+    [  6] r'A!9>
+    [  6] caGL2x
+    [  6] "BE8:5
+    [  6] )sfE`#
+    [  6] {F4]e,
+    [  6] F{SA7+
+    [  6] a0+k3F
+    [  6] ,o/~]L
+    [  6] EsQl/~
+    [  6] %6h:`m
+    [  7] NenTHV/
+    [  6] O%B,YF
+    [  9] F*?]b'iUC
+    [  6] X_|j[*
+    [  6] ~|I[_t
+    [  7] e&qPPB"
+    [  6] "x7#T.
+    [  6] N+t+"b
+    [  7] Hil2ZSX
+    [  6] JB2@nD
+    [  6] <a]mCU
+    [  6] a;GMId
+    [  6] 216VUR
+    [  7] iTnSPAL
+    [  6] $52_p$
+    [  7] gV&A8W)
+    [  7] k2%dcH@
+    [  7] q(D]zOW
+    [  6] !z~/u6
+    [  7] vES]Hht
+    [  7] e}9$r-p
+    [  8] U6'(DUoh
+    [  6] v8SH}B
+    [  6] Y!$}oU
+    [  6] |:@0~0
+    [  8] P6-y<8)H
+    [  6] 91k{<P
+    [  7] 8JuyIjW
+    [  6] 4Zdvl?
+    [  6] 7`X#%v
+    [  6] XxtM)A
+    [  7] r(%`WX/
+    [  6] 0G_5hD
+    [  6] /]_Uq`
+    [  6] YJ2/HY
+    [  6] J}:.l2
+    [  6] brAGfe
+    [  6] M.o$0F
+    [ 11] q/;Oo~,Lx&=
+    [  6] bTZihL
+    [  6] g@> @F
+    [  7] Acr)$q|
+    [  7] Zbo}<5r
+    [  6] .YF<dS
+    [  6] }hGV"<
+    [  6] lAK[lN
+    [  6] Fj3$pA
+    [  7] 8/( .^t
+    [  6] &]lEnw
+    [  6] eVD9#^
+    [  6] kb[9vj
+    [  7] W, KHBY
+    [  6] i;B#/K
+    [  6] Q-"`P3
+    [  6] GJGCn'
+    [  6] ==tIPX
+    [  6] |IG`Ek
+    [  8] N#R49-X 
+    [  7] Xvoku/m
+    [  6] mS>}FV
+    [  7] :eB.f{a
+    [  6] )q6'R5
+    [  6] lboxY$
+    [  6] 1Em=o&
+    [  7] %ZYRioH
+    [  6] Q*Y%2,
+    [  6] `(VV0=
+    [  6] !nP0Fp
+    [  7] .q JyoF
+    [  7] djf:e0[
+    [  8] ZHPKJe|^
+    [  6] J~69r*
+    [  6] /B)3_h
+    [  6] \/ivJ/
+    [  6] 8dUL?0
+    [  7] 9)9:NPe
+    [  6] F$TS<g
+    [  7]  [WN~+q
+    [  6] {{RTcZ
+    [  7] R|tbOE/
+    [  7] gz32t?-
+    [  6] f#G'Go
+    [  8] 6T&V`Yu9
+    [  7] zQX7L-o
+    [  6] Y4,k,@
+    [  9] v/ *-y39H
+    [  6] JG=:e|
+    [  7] %vT+7^]
+    [  6] C[\x:7
+    [  7] \`7F{D#
+    [  6] < f6|;
+    [  6] l'i#(a
+    [  8] dS{'iTL]
+    [  7] '{/B@4i
+    [  8] `O3j>05(
+    [  8] 9ib3{>,A
+    [  8] V)B!p[7B
+    [  7] wQ&cEFF
+    [  6] OHRbNe
+    [  7] OI6X5Er
+    [  6] EKv'HU
+    [  7] _z|{&(c
+    [  6] 0GxhLD
+    [  6] Wr:u-A
+    [  6] :gD;B\
+    [  7] \5C$fx7
+    [  6] 9oy+d[
+    [  6] c)X \n
+    [  8] t#T`_IUH
+    [  6] HqTLra
+    [  7] }C1:4[H
+    [  6] V43q>V
+    [  9] K|^zyZ&D2
+    [  8] KrOuY4%x
+    [  6] vKB+69
+    [  8]  oFGB@4G
+    [  7] )H{7 E|
+    [  6] SJYGYb
+    [  7] #VRpLIO
+    [  6] 4roJep
+    [  6] i]xG[D
+    [  6] |==,O%
+    [  6] 7-Nla}
+    [  7] x+Lc_U,
+    [  6] ]v.2Br
+    [  8] pe6BIbrU
+    [  6] 0P1;-&
+    [  8] )8{2ht|e
+    [  6] W_V{_w
+    [  6] qPr00l
+    [  6] sF"N _
+    [  7] +6fY4 e
+    [  6] ^* Bo|
+    [  6] !+gO2|
+    [  6] }|Wb1q
+    [  6] nLePRK
+    [  6] j<E7kd
+    [  6] T!<RfT
+    [  8] X(m2u4|_
+    [  9] TC< JJF>G
+    [  6] (yBe7T
+    [  6] x5FTl/
+    [  7] Gk$}vwN
+    [  6] p~go){
+    [  6] 2a{8>E
+    [  7] E>):#)9
+    [  6] d<,9d{
+    [  6]  JJ-*f
+    [  6] c4cmG1
+    [  6] [[ojLj
+    [  6] ..#IHp
+    [  7] B8#y1h|
+    [  6] !8RuVk
+    [  6] ~53Lks
+    [  8] #^*M.Ft4
+    [  6] H$zPP"
+    [  8] $=+Jdt)-
+    [  6] a43'"(
+    [  6] !N)X@<
+    [  6] w</EB)
+    [  6] brKYdQ
+    [  7] ze#;r}@
+    [  7] 5N>=Yk7
+    [  6] Xiz~;?
+    [  7] iO+_3c:
+    [  6] 0v/xw{
+    [  6] h#0kB^
+    [  7] 4i{rb13
+    [  6] :o~(||
+    [  6] uHV0BZ
+    [  8] sf!zuiKh
+    [  6] O#E\>S
+    [  7] EAp*'jg
+    [  6] k[]jiq
+    [  6] :&C(_d
+    [  6] u9Dt]:
+    [  6] _&"3/'
+    [  6] wX[VXO
+    [  7] ODtA\1K
+    [  6] oZfn1F
+    [  7] Vi}RL6T
+    [  6] ),KzW]
+    [  6] Tt//D:
+    [  6] "Be#@i
+    [  8] 0v_5%a7<
+
+======================================================================
+SECTION: MAIN_PAYLOAD_4MB  @ 0x0004012E-0x004AC37F  len=4,637,265
+  hex: 87 65 43 21 aa 41 ad a3 a3 ad 41 aa 00 00 00 00 00 00 00 00 68 27 13 c1 38 d7 2a 71 2a 84 6c c2 d5 d5 2d c0 c7 a2 16 f8 5c 2d c7 24 ee 86 6e 8b
+  asc: .eC!.A....A.........h'..8.*q*.l...-.....\-.$..n.
+  String count: 7611
+    [  6] sacu&5
+    [  6] aU[L-=
+    [  9] sv|0FFU}?
+    [  6] ~TG}q-
+    [  6] r@#DB(
+    [  7] @Q6 MV\
+    [  6] {2PqMz
+    [  8] b2\|2#:>
+    [  6] IQlOi^
+    [  6] wy2eDU
+    [  6] \Qw}Y6
+    [  9] ,)`O#,vl6
+    [  6] ?:$0u:
+    [  6] 4uqqHr
+    [  6] :}6wW(
+    [  6] *'uudx
+    [  6] Ti9h+Y
+    [  6] DE]cDP
+    [  6] 6@AfHL
+    [  6] f{]r1z
+    [  6] mO3qSh
+    [  6] wJm[Q1
+    [  6] O3G}dG
+    [  6] 5m8G9\
+    [  6] }i`b4m
+    [  6] CFRm]i
+    [  7] v69#xrD
+    [  7] tYybpFK
+    [  6] O_WQ]P
+    [  6] (dM,AA
+    [  6] ;7]D.k
+    [  7] p9!qvhq
+    [  6] @?-Yu<
+    [ 10] 8.QnkF% W[
+    [  6] |n >aA
+    [  7] "";%"we
+    [  6] w>1hPN
+    [  6] =1NRfT
+    [  8] ,-q 2t{t
+    [  7] G^w|rMd
+    [  6] |WX0qw
+    [  6] U!`]Rp
+    [  6] .cj`gE
+    [ 13] :*mn/{)sL#h$M
+    [  6] @6[EK*
+    [  6] '%%]GD
+    [  6] ,#H@H;
+    [  6] v.Fsut
+    [  8] P_)Bs_Th
+    [  6] .])b."
+    [  7] 96nL.3c
+    [  6] /vJWt?
+    [  7] JDC(),2
+    [  6] '}kRWk
+    [  6] 88^X-s
+    [  6] l; ZEw
+    [  6] rIs8cc
+    [  6] 1[[V+|
+    [ 11] _KMq8<vG8#(
+    [  6] aIzg*V
+    [  6] Y+P_Pg
+    [  6] UZCPwI
+    [  7] x|XgO=T
+    [  9] ,^/Rz%Y|Y
+    [  6] aJDLpA
+    [  6] s:S={2
+    [  7] xc?xQ^?
+    [  6] IkdYq0
+    [  6] PP(}L[
+    [  6] [gep"V
+    [  6] CYI;G+
+    [  7] >5XbR}Y
+    [  8] Pe%z'xGx
+    [  7] j$1Iq,n
+    [  6] 7Eu#3f
+    [  7] gg89Qh=
+    [  7] 7RH!jA-
+    [  6] #sF.H^
+    [  7] S`s%)mv
+    [  9] /6X-S)0VU
+    [  7] n+nx?98
+    [  8] oL^v+t?n
+    [  6] 1t3>Uh
+    [  7] <g^^>F;
+    [  6] CCFe_-
+    [  6] d>QmYP
+    [  7] 7&#vy#n
+    [  6] 8LyHiC
+    [  7] x<@kH:q
+    [  6] _#HjxB
+    [  7] ~j?Gdk@
+    [  7] G>`GoIX
+    [  6] &niXIz
+    [  6] L5a0AQ
+    [  7] ZB4hKlP
+    [  6] Z!e*5E
+    [  6] bDWj'g
+    [  6] 2i!(eT
+    [  6] 5V%]zq
+    [  7] S0z`m)"
+    [  6] Y1+qGq
+    [  7] +}.[}I:
+    [  6] CA{~?j
+    [  6] _0WR)A
+    [  6] ^NIdz"
+    [  6] &0&c[0
+    [  7] 1LVkbNt
+    [  6] 2kPQ}{
+    [  8] [tFaHbUd
+    [  6] @>hh45
+    [  8] Z(hv*Ay]
+    [  7] A?DA"b@
+    [  6] @SKL|0
+    [ 10] ?41hnC7r@c
+    [  6] \FH|bf
+    [  6] fWOZN;
+    [  9] &*$.cK_<>
+    [  6] *-<Fi6
+    [  6] G!`zVW
+    [  7] $cy$*V&
+    [  8] "5_%`+j*
+    [  6] e./Z"9
+    [  6] z/#K9{
+    [  7] *CXBFmM
+    [  7] rUK.r_f
+    [  6] "TT{a3
+    [  6] sk0xc4
+    [  6] jI(_6w
+    [  6] HpV,%1
+    [  6] B6/MPz
+    [  6] M\HeJ4
+    [  6] K$GW#<
+    [  9] "AT1DG/[$
+    [  8] r:P<qMn[
+    [  6] :D'bV 
+    [  7] ;Q?eyOu
+    [  6] U-!XG{
+    [  6] 9"!8~Y
+    [  7] MDnCk$'
+    [  6] y_y=7A
+    [  7] O)69TQ.
+    [  6] zdEH~y
+    [  6] yvyHIL
+    [  6] cLiO!$
+    [  6] KZ?z$:
+    [  6] &|tpmN
+    [  9] ~eJa09_aB
+    [  6] KtF?wg
+    [  6] GGsxDD
+    [  6] `.#rx_
+    [  6] 4/Y(7U
+    [  8] vw)V+HW_
+    [  6] 3[ Q50
+    [  7] +}K|-b+
+    [  6] H+K&Lm
+    [  6] `j'ErX
+    [  6] 1ZUTn|
+    [  6] \\|zOj
+    [  7] DNQB$^h
+    [  7] F3.*#t(
+    [  6] lv-1G@
+    [  7] uiT~YMe
+    [  6] 0XJ,=+
+    [  6] F6~1r{
+    [  7] G{c8FZ1
+    [  6] Js&d=Y
+    [  6] woxEd"
+    [  6] EpPF+U
+    [  6] IdJuG]
+    [ 10] .G!e9@AE,`
+    [  6] <I!MIg
+    [  6]  0b\#~
+    [  6] (Xn[&t
+    [  6] M^)45A
+    [  6] "72iLl
+    [  6] Opbw8B
+    [  7] cFVnj7O
+    [  6] iVSTAc
+    [  6] gHv[Fd
+    [  6] #mg&z7
+    [  6] LkPp+?
+    [  6] .yO:GO
+    [  8] oX+rH"EN
+    [  6] ciN9K.
+    [  6] rZ9Ka6
+    [  9] g]J21!z5r
+    [  6] yRp{KI
+    [  6] AV|Zvl
+    [  6] w"SZ2P
+    [  6] B<H_)!
+    [  6] [)\s_x
+    [  7] ,'(1T7R
+    [  8] n~`<bY1I
+    [  7] b", @#o
+    [  6] Cz@92\
+    [  6] iV$9C_
+    [  6] }d0$eY
+    [  6] t;nK$b
+    [  6] ~%\%r~
+    [  7] ot@MlJ\
+    [  7] $m@34AB
+    [  6] [~O@6A
+    [  6] w@,W {
+    [  6] ;SkZnE
+    [  7] (8wvW5V
+    [  7] uCQB't_
+    [  6] TuUkj@
+    [  6] 8xTk,s
+    [  6] cy" xT
+    [  6] 6iA"T\
+    [  8] F'cMf=&p
+    [  7] |6rwj&*
+    [  8] `;/aCw,Y
+    [  6] L`/RCK
+    [  6] %,&#@i
+    [  6] \K?a5j
+    [  7] rmiF*+L
+    [  6] ]_-C<S
+    [  6] VM~PJ?
+    [  6] V+>';2
+    [  8] /cw4><$L
+    [  6] 9pe6\/
+    [  9] ~L}5u}`t5
+    [  6] 5W4_m=
+    [  6] h}~GPA
+    [  6] +-rqJY
+    [  6] ~u|vUQ
+    [  6] :R6m)-
+    [  7] >nn)^bJ
+    [  6] 2dFjR;
+    [  7] 5DBFT'i
+    [  7] +Fa64UM
+    [  7] /HNTw_S
+    [  6] rU/CU^
+    [  6] V}:'-+
+    [  6] JxhDbk
+    [  8] 4'0zy\J8
+    [  7] (JXD`,N
+    [  7] ~VDB.b<
+    [  6] -JI_23
+    [  6] t8if\B
+    [  6] MjE=dK
+    [  6] s1@i#I
+    [  6] VNK06U
+    [  8] zj?{QeN]
+    [  7] Vmb~i;8
+    [  7] EX D7D{
+    [  6] -vq\F:
+    [  6] )A)VCa
+    [  7] D/MQBU7
+    [  6] PwB/\i
+    [  6] (18^G/
+    [  6] 'LdTqO
+    [  6] ]GGSN^
+    [  6] m>1 e$
+    [  9] JfZGh3]b'
+    [  7] 214,iC$
+    [  7] _[?QJ#3
+    [  6] .5]$A!
+    [  6] HEOS&c
+    [  8] vf}E'B?`
+    [  7] D\FW@o]
+    [  6] F;D;EJ
+    [ 11] =`S7**!+w^ 
+    [  6] &rRN2P
+    [  6] aGIRZy
+    [  6] #/x,&"
+    [  7] &hI&2EP
+    [  6] |00.^Z
+    [  8] t5%*;Z`G
+    [  6] N-!}{t
+    [  6] SBpDaH
+    [ 10] J[\'xZT";s
+    [  6] E?Q!#r
+    [  6] YH;xh|
+    [  6] BHnfgq
+    [  6] PPM!].
+    [  6] tg;g#{
+    [  6] q8N>#&
+    [  7] fwu8g,>
+    [  6] Xs3k\H
+    [  6] FGmII~
+    [  6] RlX!C.
+    [  6] P_ugP_
+    [  7] Mo M{|}
+    [  6] yJG[Gl
+    [  8] 37;5\2q&
+    [  7] 3[|Dj_L
+    [  6] t]5}Pg
+    [  7] z<T`|h6
+    [  6] d5ZUct
+    [  8] !0? W:<-
+    [  6] EXBoP4
+    [  6] ]3$_+t
+    [  8] i|3JNJgT
+    [  6] D 8pwI
+    [  6] pJtm`p
+    [  8] >&$dXPFw
+    [  6] Hy-Y<?
+    [  6] =!&DK(
+
+======================================================================
+SECTION: BMPS_SECTION  @ 0x0055B002-0x005BB84C  len=395,338
+  hex: 42 4d 50 53 02 00 00 00 03 00 00 00 18 00 00 00 49 4e 46 4f 58 00 00 00 a9 10 00 00 7c 2a 00 00 41 4d 5a 4c 00 00 00 00 44 41 54 41 01 11 00 00
+  asc: BMPS............INFOX.......|*..AMZL....DATA....
+  String count: 639
+    [  6] N12x@,
+    [  7] Z(p'6=+
+    [  6] uT,^O(
+    [  6] `A5z.G
+    [  6] 14=e^B
+    [  7] 3HX`VCN
+    [  6] j~H,@\
+    [  6] 1+W  4
+    [  6] 3a"~|}
+    [  6] @\sDX_
+    [  7] qnc'rm^
+    [  6] --'`1U
+    [  7] 6V+Ixe;
+    [  7] 0h#00 A
+    [  6] y~nnl%
+    [  6] %(l)4-
+    [  7] l%'t1h@
+    [  7] O*2j+.]
+    [  7] 7M]Tt*3
+    [  6] Fx.gig
+    [  7] HgTV_&y
+    [  6] I=7-{b
+    [  7] cs%tR<v
+    [  6] P,u:CP
+    [  6] e([dB~
+    [  6] ;<8/"A
+    [  6] 85|{Hu
+    [  8] CqZani;%
+    [  6] x8S/.P
+    [  6] zqc>B=
+    [  6] '*aq"S
+    [  6] I{'E|:
+    [  7] pVleZx?
+    [  7] 56kM^y@
+    [  6] my{r(#
+    [  8] 47xd;Bbu
+    [  6] `cVFN>
+    [  6] e!,eiL
+    [  8] 4l&3R~yG
+    [  6] e]vz>\
+    [  6] +WwHI/
+    [  6] T4Q}@)
+    [  6] z|Y{JI
+    [  6] zI`}([
+    [  6] #`BVTH
+    [  7] 7ewCt#@
+    [  6] Bj:k-%
+    [  6] ?EK~cn
+    [  6] nRDE3z
+    [  7] (Ug[fp-
+    [  7] N6j:+\E
+    [  7] kGY;1~e
+    [  6] z2hajd
+    [  7] dAHLCT0
+    [  6] }[eQsr
+    [  6] ogP~Sp
+    [  6] W'PK7N
+    [  6] "6QlGY
+    [  7] mS}D^77
+    [  6] w5s/%B
+    [  6] #awH7Q
+    [  7] rW,PbXZ
+    [  7] USZ"!9a
+    [  6] b.D(=5
+    [  9] \CihrOELR
+    [  6] AGT_P>
+    [  6] z#yZqK
+    [  6] \HX)=@
+    [  6] __B}Ka
+    [  6] mo_;(|
+    [  6] 8=~/_z
+    [  7] A_I Jd.
+    [  7] DGrnb 4
+    [  8] M8,mPJz0
+    [  7] :iv(Xm<
+    [  6] tS*\?@
+    [  6] RxmL%"
+    [  7] tF&r3hS
+    [  6] d'o2ny
+    [  6] nkMm^L
+    [  6] a,On%\
+    [  6] G|-#<P
+    [ 10] <1~^6/p^u;
+    [  7] 'Ahl"pn
+    [  6] Q{UTao
+    [  6] i6V"{S
+    [  7] *YTLx2V
+    [ 14] dwOspYv/@Ii~DW
+    [  8] A56s{EB-
+    [  6] yNjD.-
+    [  6] qm0:?S
+    [  6] IClE4H
+    [  6] QHR{wF
+    [  6] | \T9%
+    [  6] ?v48o&
+    [  8] z=x(Y5|D
+    [  6] c</ZXr
+    [  6] }Q/p .
+    [  6] C<t%N{
+    [  6] QJ:kms
+    [  6] gkXGfL
+    [  6] <%/qZ:
+    [  6] =F^R=U
+    [  6] z=k:?a
+    [  6] 5a_!%c
+    [  6] ?2saWF
+    [  6] JX,zE~
+    [  6] (+yd#h
+    [  6] b\\' =
+    [  6] _ Z~iL
+    [  6] %A_56K
+    [  7] W0?et$O
+    [  6] `?l]s`
+    [  7] \9SXI3n
+    [  7] Dmv-'$.
+    [  6] Y8qfU<
+    [  6] P>1Nrx
+    [  7] U"\5;M/
+    [  6] ;5);Ae
+    [  7] [l~c}%[
+    [  6] >-]WN"
+    [  7] 8b\II,=
+    [ 10] 2mp\uUvj[!
+    [  8] qEMUaej(
+    [  9] OJiqUzn.-
+    [  6] <&n&Vr
+    [  6] Z//;]Q
+    [  6] md[a":
+    [  6] d=uH'I
+    [  6] x[C3(<
+    [  9] '6m4s_$qL
+    [  6] f*hj"0
+    [  6] @&oF[{
+    [  7] 2}5 S0@
+    [  7] %2@5LCD
+    [  6] dRy%C$
+    [  6] b$wTt]
+    [  7] qbxjlCr
+    [  6] :Nvf +
+    [  9] 5S%Ju7,GI
+    [  6] L`VUzW
+    [  6] )mZfXo
+    [  6] s9e-g[
+    [  7] +xmCGsn
+    [  8] z{|RlSU#
+    [  6] B,&3jL
+    [  6] BNAv/+
+    [  6] z_E!GW
+    [  6] H*ttA;
+    [  7] y~w,@0#
+    [ 10] ,Ystd9+X4w
+    [  7] pwDCpyf
+    [  6] iOd`y-
+    [  9] .O]'KXb76
+    [  6] "cdR@g
+    [  8] k3(ca78X
+    [  7] ?}[Ym:^
+    [  9] ]u`1_vdDZ
+    [  8] Sdve)Z<=
+    [  6] *'xk6H
+    [  7] LnRdLfn
+    [ 11] 2;T'KkhZ;iw
+    [  6] vEj"F4
+    [  6] 7yjY;\
+    [  7] PtM/o/{
+    [  7] wVZV.4B
+    [  6] 6H"b@&
+    [  6] 05@(+]
+    [  6] rj(MW)
+    [  7] w*I bs%
+    [  8] F4/Zrg.Z
+    [  6] 5jjD1J
+    [  6] cA=jUk
+    [  6] yaXx$5
+    [  7] /e,C)Sm
+    [  7] ]/.Ch>d
+    [ 10] Y&z:U.Gh5g
+    [  6] ;5b<2m
+    [  9] A45e[i$sq
+    [  6] BN6@/ 
+    [  7] rN\1_b8
+    [  6] #"ua)>
+    [  6] fsnAVw
+    [  6] *S\+s'
+    [  6] ghneo{
+    [  6] 1_lVgL
+    [  7] pSQo.Ld
+    [  6] =OvjVC
+    [  6] ,a:_ $
+    [  6] SDklUl
+    [  6] al]'$[
+    [  9] o1K|M/rww
+    [  7] o~z)8*M
+    [  7] 2R.=L|}
+    [  6] 3zHb@7
+    [  6] Pqv^n+
+    [  7] b.PtkHe
+    [  6] l5{HQb
+    [  6] Z&fSlL
+    [  6] @-~QN;
+    [  6] ZtP*"-
+    [  6] <"cH,I
+    [  6] 9KLuf 
+    [  6] 8XU]Vo
+    [  8] e:&9}[QG
+    [  6] /QPWEi
+    [  6] e#(Nzt
+    [  6] ^!$L-J
+    [  6] S6T9eu
+    [  6] L{#cA%
+    [  6] >%8.%h
+    [  6] _nd90<
+    [  6] s*FEx~
+    [  6] *$Gy2l
+    [  6] 1zFCh 
+    [  7] F1f<DNe
+    [  6] 0m0]N?
+    [  7] Nht.#{/
+    [  7] J$c u=.
+    [  6] ,@W!ju
+    [  7] YFCYVoE
+    [  6] #IFa,I
+    [  6] y97zE?
+    [  8] l2KI[~-p
+    [  6] v'U8_%
+    [  7] 2gbnh|@
+    [  7] @W e|vR
+    [  6] OY'7Iq
+    [  7] 9,5%Yhz
+    [  8] j=\k(qF6
+    [  8] BL{5mAQY
+    [  6] I6^17=
+    [  6] ;pc#<V
+    [  7] n~Ao>~_
+    [  6] _=L?y-
+    [  7] \GJ2*AO
+    [  7] Ux]'}V|
+    [  6] 0s#2'M
+    [  8] o@JonA~y
+    [  8] d {(,99q
+    [  6] s@v:t\
+    [  6] Xbu_{U
+    [  6] e%]i!u
+    [  6] k`%goQ
+    [  7] ?VeO[WI
+    [ 10] F{@V\?cHB7
+    [  6] 1yv&8*
+    [  7] dJ\/E[A
+    [  6] {f?>:t
+    [  6] nWY_i\
+    [  6] YieCu!
+    [  7] ~&$Pce;
+    [  7] '5T{$>t
+    [  6] eBd3i@
+    [  6] I*T`d^
+    [  8] Ud%JQ?W|
+    [  9] ')MyP~6mn
+    [  6] 'VO4rd
+    [  8] I\qQfAN"
+    [  6] {+bIm$
+    [  6] ]rj6)j
+    [  6] V3m#yP
+    [ 13] (k|*2Ln\2'P>j
+    [  6] W`5--J
+    [  6] <U_6[q
+    [  6] |3mN}?
+    [  6] \,#/W^
+    [  7]  `R+vg.
+    [  8] d9a'k+`%
+    [  7] CK"CbX[
+    [  6] nH8TdU
+    [ 10] *zP8^.|!-b
+    [  6] Wx?5mI
+    [  8] L/:FLZgK
+    [  7] ghcH([T
+    [  6] om1z%-
+    [  6] *.F.Tm
+    [  8] p'$q$8<9
+    [  7] z95@~/#
+    [  6] vLHTs(
+    [  9] >L@"&U:vM
+    [  8] EUH:_>30
+    [  6] 4:MsAu
+    [  6] ;9n[I%
+    [  6] @2+8I6
+    [  7] ?I6Wm+7
+    [  6] =TLCz[
+    [  8] ()7V-f'9
+    [  8] P|l^R0Hg
+    [  6] -0NFBC
+    [  7] qsY^C%E
+    [  6] 1\slJz
+    [  7] -yHw|@>
+    [  9] R]OZ*=SbQ
+    [  6] e*FAa|
+    [  6] ?C[|j<
+    [  7] AhUv3la
+    [  8] VY%_W(uT
+    [  6] }}q!R,
+    [  7] 2H@Cb0j
+
+======================================================================
+SECTION: SEC_3KB  @ 0x0075B002-0x0075BC44  len=3,138
+  hex: 3e 0c 00 00 ff fd 40 04 23 33 6c 92 49 25 26 53 0a c9 35 59 58 f6 8f 64 d2 8d 34 a4 9b 91 26 63 5d 75 a0 5a 19 5b 6a 06 20 8d 78 9f 2d 8b 62 d8
+  asc: >.....@.#3l.I%&S..5YX..d..4...&c]u.Z.[j. .x.-.b.
+  String count: 3
+    [  7] 4NURIMA
+    [  8] u\*JcPI#
+    [  6] BT"_Y;
+
+======================================================================
+SECTION: SEC_5KB  @ 0x0077B002-0x0077C5F5  len=5,619
+  hex: 44 3a 00 00 eb 15 00 00 6c 00 00 80 00 44 3a 00 00 00 00 00 00 00 1f 80 11 40 64 ab 0a 0b cf ad 8e 7a 17 f7 bc 34 d0 a8 e5 de 1c 76 81 f9 43 ea
+  asc: D:......l....D:..........@d......z...4.....v..C.
+  String count: 10
+    [  7] $uBe1,#
+    [  7] [?/8AdG
+    [  7] ,ds'+$I
+    [  6] rw'q+>
+    [  6] |]hsPC
+    [  7] uVcN9Hi
+    [  7] D}+<KCS
+    [  6] |A\G[p
+    [  8] .{JC?2/m
+    [  6] r6TU{P
+
+======================================================================
+SECTION: STRG_SECTION  @ 0x0079B002-0x007AC7D6  len=71,636
+  hex: 53 54 52 47 01 02 06 00 74 74 78 00 00 00 00 00 90 5a 00 00 6c 12 00 00 98 00 00 00 30 04 09 00 65 6e 00 00 14 00 00 00 5d 7f 00 00 f2 2f 00 00
+  asc: STRG....ttx......Z..l.......0...en......]..../..
+  String count: 111
+    [  6] 'e9^]1
+    [  7] ?r`^B3*
+    [  7] Mtdoz9t
+    [  7] FJf5$6W
+    [  6] Uf),&+
+    [  6] H!.\It
+    [  6] CFO0[(
+    [  6] sG92dD
+    [  6] M"%.1S
+    [  7] 52Qg1sJ
+    [  6] f5|Qvq
+    [  6] %$+~Yv
+    [  7] {ECi"Iq
+    [  6] ^Cm/|r
+    [  6] 1Xm^5<
+    [  6] #M]z(a
+    [  6] ])In^Q
+    [  6] o^TEB?
+    [  6] 'q]z"7
+    [  6] pKd"z?
+    [  7] &.w?vj"
+    [  6] oM]O>i
+    [  6] aH+!^"
+    [  6] +2NZ?3
+    [  7] %/WwuQI
+    [  6] sV\z^.
+    [  6] 8ENmbz
+    [  6] h"DU:?
+    [  6] Kt&['+
+    [  9] ix^=F}=?0
+    [  7] |an1An`
+    [  7] 3<9N75(
+    [  6] F^).H2
+    [  6] ><SdHv
+    [ 10] Hd u6z'r A
+    [  6] ]cM>-%
+    [  6] bzX`'3
+    [  6] /HlAha
+    [  8] G<X=nR%4
+    [  7] ]6O'+^o
+    [  7] cyV?Gu<
+    [  6] 6N{e2U
+    [  6] <!|7np
+    [  7] <*a<ho+
+    [  6] mly<+*
+    [  6] 0:f1{Q
+    [  6] q-.j)l
+    [  7] %25$[jJ
+    [  6] |rIeK`
+    [  6] ,eUE*7
+    [  6] U&r{'K
+    [  6] N:y-!o
+    [  8] 4Vh &GCW
+    [  6] CnW!?<
+    [  7] n76EG.5
+    [  6] 69xhXy
+    [  7] snh49~K
+    [  7] Y94M}'v
+    [  6] Vax9 o
+    [  7] v WaCSd
+    [  9] 1DUx*fEtg
+    [  6] A*22+!
+    [  6] n=?x66
+    [  7] 0|Z9*s^
+    [  7] >*&/cXG
+    [  6] $ rE!?
+    [  7] Uf\g\o6
+    [  7] hr8p{Z2
+    [  6] jJiR=m
+    [  8] -.|S}8W&
+    [  6] mBw3mg
+    [  7] #5Ck)h/
+    [  6] mSAqlX
+    [  6] ^;5wPQ
+    [  6] &*>52O
+    [  6] >J|O!"
+    [  8] wp<|j"7[
+    [  6] ^!Kfu+
+    [  6] B8ul#R
+    [  7] *I%BV?v
+    [  6] otBa%s
+    [  7] '^@s-jI
+    [  6] [J9,IU
+    [  6] *$3kd?
+    [  7]  N"bp\_
+    [  6] :8=Kun
+    [  6] y4$e{c
+    [  6] !gE4X;
+    [  7] H #o\NI
+    [  6] U98R;0
+    [  6] bo<Wi:
+    [  9] D0F`~]T(:
+    [  6] J+(=Cg
+    [  6] .~NA"_
+    [  7] @odDjE/
+    [  6] bS$MwH
+    [  6] E"H9,&
+    [  7] )+*?zB/
+    [  6] bCj7#w
+    [  8] vAD]::X{
+    [  7] JwAdlqv
+    [  7] +D_ufY-
+    [  6] cRW[-J
+    [  8] iJOkO9n;
+    [  7] yASl@TW
+    [  6] )CR&Y%
+    [  6] R)`vs(
+    [  9] IQ|"Q!mm"
+    [  6] GP4[`b
+    [  6] NbV[`X
+    [  6] D]U{d.
+
+======================================================================
+SECTION: DATA_14KB  @ 0x0081B002-0x0081E8E2  len=14,560
+  hex: 06 0e 00 00 b8 dc 96 65 b4 83 0e 00 00 31 32 33 30 33 56 32 37 35 30 30 00 00 00 00 06 0e 00 00 50 3a 6b fe 05 1e f4 00 01 31 32 33 30 33 56 32
+  asc: .......e.....12303V27500........P:k......12303V2
+  String count: 351
+    [ 11] 12303V27500
+    [ 11] 12303V27500
+    [ 14] Fox-News(12380
+    [ 14] Fox-News(12380
+    [ 11] 12380V28000
+    [ 11] 12380V28000
+    [ 11] 12303V27500
+    [ 11] 12303V27500
+    [ 11] 12303V27500
+    [ 11] 12303V27500
+    [ 14] HBO (4oW 10842
+    [ 14] HBO (4oW 10842
+    [ 14] 7W 11595 V 275
+    [ 14] 7W 11595 V 275
+    [ 14] The Fight Netw
+    [ 14] The Fight Netw
+    [ 14] MTN Worldwide 
+    [ 14] MTN Worldwide 
+    [ 14] MTN Worldwide 
+    [ 14] MTN Worldwide 
+    [ 14] CNN (22oW 1156
+    [ 14] CNN (22oW 1156
+    [ 14] Abertis (30oW 
+    [ 14] Abertis (30oW 
+    [ 14] Overon (30oW 1
+    [ 14] Overon (30oW 1
+    [ 14] Antena 3 (30oW
+    [ 10] 4133V11250
+    [ 10] 4133V11250
+    [ 14] AFN 4126-L-110
+    [ 14] AFN 4126-L-110
+    [ 14] America (40.5o
+    [ 14] America (40.5o
+    [ 14] Wobi-TV (40.5?
+    [ 14] Wobi-TV (40.5?
+    [ 14] Fox Internatio
+    [ 14] Fox Internatio
+    [ 14] AMC Networks (
+    [ 14] AMC Networks (
+    [ 14] Fox Internatio
+    [ 14] Fox Internatio
+    [ 14] ESPN (40.5oW 3
+    [ 14] Globecast (40.
+    [ 14] Globecast (40.
+    [ 14] VePlus TV (40.
+    [ 14] VePlus TV (40.
+    [ 14] Venevision (40
+    [ 14] Venevision (40
+    [ 14] ESPN HD (40.5o
+    [ 14] ESPN HD (40.5o
+    [ 14] VTV Uruguay (4
+    [ 14] VTV Uruguay (4
+    [ 12] 3758 H 18500
+    [ 12] 3758 H 18500
+    [ 14] Cinecanal/Fox 
+    [ 14] Cinecanal/Fox 
+    [ 14] Turner (43oW 3
+    [ 14] Turner (43oW 3
+    [ 14] TNT Sudamerica
+    [ 14] TNT Sudamerica
+    [ 14] Discovery Suda
+    [ 14] Discovery Suda
+    [ 14] CNN Sudamerica
+    [ 14] CNN Sudamerica
+    [ 14] Artear (43oW 4
+    [ 14] Artear (43oW 4
+    [ 14] Playboy Sudame
+    [ 14] Playboy Sudame
+    [ 12] 4048 V 20832
+    [ 12] 4048 V 20832
+    [ 12] 4087 V 27500
+    [ 14] Viacom Media N
+    [ 14] Viacom Media N
+    [ 14] XX (47.5oW 616
+    [  6] s33333
+    [ 14] XX (47.5oW 616
+    [  9] 4163V9247
+    [  9] 4163V9247
+    [  9] 4163V9247
+    [  9] 4163V9247
+    [  7] vVWWWpp
+    [ 12] 3808 V 26666
+    [  6] 4D6Ftu
+    [ 12] 3808 V 26666
+    [ 14] Telefe (55oW 3
+    [ 14] Telefe (55oW 3
+    [ 14] Fox (55oW 3845
+    [ 14] Fox (55oW 3845
+    [ 14] PFC Internacio
+    [ 14] PFC Internacio
+    [ 14] International 
+    [ 14] International 
+    [ 14] Fox Sports Chi
+    [ 14] Fox Sports Chi
+    [ 14] TV Globo (55oW
+    [ 14] TV Globo (55oW
+    [ 12] 4177 V 30000
+    [ 12] 4177 V 30000
+    [ 11] 3842 H 2580
+    [ 11] 3842 H 2580
+    [ 14] SportsMax(4003
+    [ 14] SportsMax(4003
+    [ 14] Fox Sudamerica
+    [ 14] Fox Sudamerica
+    [ 14] Turner (58oW 3
+    [ 14] Turner (58oW 3
+    [ 14] Caracol (58oW 
+    [ 14] Caracol (58oW 
+    [ 14] Intelsat (58oW
+    [ 14] Intelsat (58oW
+    [ 14] Discovery Bras
+    [ 14] Discovery Bras
+    [ 14] NHK World Netw
+    [ 14] NHK World Netw
+    [ 14] Viacom Media N
+    [ 14] Viacom Media N
+    [ 14] Star One C3 (7
+    [ 14] Star One C3 (7
+    [ 14] WTTG-TV&CNN Ne
+    [ 14] WTTG-TV&CNN Ne
+    [ 12] 3751 H 14410
+    [ 12] 3751 H 14410
+    [ 14] SNY (91oW 3765
+    [ 14] SNY (91oW 3765
+    [ 14] Fox (91oW 3820
+    [ 14] Fox (91oW 3820
+    [ 14] NBC Sports (91
+    [ 14] NBC Sports (91
+    [ 14] Altitude (91oW
+    [ 14] Altitude (91oW
+    [ 14] Comcast Sports
+    [ 14] Comcast Sports
+    [ 14] FSN (91oW 4100
+    [ 14] FSN (91oW 4100
+    [ 14] International 
+    [ 14] International 
+    [ 14] 31.XX&WPAFB (9
+    [ 14] 31.XX&WPAFB (9
+    [ 14] AFN (99oW 3900
+    [ 14] AFN (99oW 3900
+    [ 14] Viacom (101oW 
+    [ 14] Viacom (101oW 
+    [ 14] XX (101oW 3980
+    [ 14] XX (101oW 3980
+    [ 14] XX (101oW 4020
+    [ 14] XX (101oW 4020
+    [ 14] XX (103oW 1218
+    [ 14] XX (103oW 1218
+    [ 14] Ici Radio Cana
+    [ 14] Ici Radio Cana
+    [ 12] 3848 V 13842
+    [ 12] 3848 V 13842
+    [ 12] 4141 H 30000
+    [ 12] 4141 H 30000
+    [ 14] Cine Mexicano 
+    [ 14] Cine Mexicano 
+    [ 14] Panamericana T
+    [ 14] Panamericana T
+    [ 12] 4172 V 18916
+    [ 12] 4172 V 18916
+    [ 14] Genesis Networ
+    [ 14] Genesis Networ
+    [ 14] Fantasy Sports
+    [ 14] Fantasy Sports
+    [ 14] Sony USA (121o
+    [ 14] Sony USA (121o
+    [ 14] A&E Networks (
+    [ 14] A&E Networks (
+    [ 14] Outdoor Channe
+    [ 14] Outdoor Channe
+    [ 14] XX (123oW 1173
+    [ 14] XX (123oW 1173
+    [ 14] AMC Networks (
+    [ 14] AMC Networks (
+    [ 14] NBC-GOLF (125o
+    [ 14] NBC-GOLF (125o
+    [ 14] Turner (125oW 
+    [ 14] Turner (125oW 
+    [ 14] WGN (125oW 396
+    [ 14] WGN (125oW 396
+    [ 14] A&E Networks (
+    [ 14] A&E Networks (
+    [ 12] 3900 V 29079
+    [ 12] 3900 V 29079
+    [ 14] BBC (127oW 380
+    [ 14] BBC (127oW 380
+    [ 14] XX (127oW 3820
+    [ 14] XX (127oW 3820
+    [ 12] 3780 H 29270
+    [ 12] 3780 H 29270
+    [ 14] Hallmark (131o
+    [ 14] Hallmark (131o
+    [ 14] GolTV (131oW 3
+    [ 14] GolTV (131oW 3
+    [ 14] Nesen (131oW 3
+    [ 14] Nesen (131oW 3
+    [ 12] 3910 V 13200
+    [ 12] 3910 V 13200
+    [ 14] A&E Networks (
+    [ 14] A&E Networks (
+    [ 12] 3960 V 30000
+    [ 12] 3960 V 30000
+    [ 14] Epix (131oW 39
+    [ 14] Epix (131oW 39
+    [ 12] 4100 H 30000
+    [ 12] 4100 H 30000
+    [ 14] Viacom (131oW 
+    [ 14] Viacom (131oW 
+    [ 14] Univision (131
+    [ 14] Univision (131
+    [ 14] TNT (133oW 402
+    [ 14] TNT (133oW 402
+    [ 12] 3860-V-28000
+    [ 12] 3860-V-28000
+    [ 12] 3720 V 30000
+    [ 12] 3720 V 30000
+    [ 14] Viacom (135oW 
+    [ 14] Viacom (135oW 
+    [ 12] 4040 V 30000
+    [ 12] 4040 V 30000
+    [ 14] Univision (135
+    [ 14] Univision (135
+    [ 14] Comcast Entert
+    [ 14] Comcast Entert
+    [ 14] Scripps Networ
+    [ 14] Scripps Networ
+    [ 14] Home Shopping 
+    [ 14] Home Shopping 
+    [ 14] MavTV (135oW 4
+    [ 12] 3646-R-28000
+    [ 12] 3646-R-28000
+    [ 12] 3753-R-30000
+    [ 12] 3753-R-30000
+    [ 14] 12590-V-28000 
+    [ 14] 12590-V-28000 
+    [ 14] 16E Teleippica
+    [ 14] 16E Teleippica
+    [ 14] 16E Teleippica
+    [ 14] 16E Teleippica
+    [ 14] 4.8E 12149-H-2
+    [ 14] 4.8E 12149-H-2
+    [ 14] 4.8E 12226-H-2
+    [ 14] 4.8E 12226-H-2
+    [ 14] 4.8E 12322-V-2
+    [ 14] 4.8E 12322-V-2
+    [ 14] 4.8E 12418-H-2
+    [ 14] 4.8E 12418-H-2
+    [ 14] 4.8E 12303-H-2
+    [ 14] 4.8E 12303-H-2
+    [ 14] 4.8E 12303-H-2
+    [ 14] 4.8E 12360-V-2
+    [ 14] 4.8E 12360-V-2
+    [ 14] AFN 3800 L 275
+    [ 14] AFN 3800 L 275
+    [  8] 13E Bwtv
+    [  8] 13E Bwtv
+    [  6] 9E AFN
+    [  6] 9E AFN
+    [ 14] 68.5E 3974 H 1
+    [ 14] 68.5E 3974 H 1
+    [ 14] 68.5E 3845&375
+    [ 14] 68.5E 3845&375
+    [ 14] 68.5E 3845&375
+    [ 14] 68.5E 3739 H 2
+    [ 14] 68.5E 3739 H 2
+    [ 14] 68.5E 3974 V 1
+    [ 14] 68.5E 3974 V 1
+    [ 14] 68.5E 4064 H 1
+    [ 14] 68.5E 4064 H 1
+    [ 14] 68.5E 3900  H 
+    [ 14] 68.5E 3900  H 
+    [ 11] 4196 H 4000
+    [ 11] 4196 H 4000
+    [ 14] 91.5E 3641 V 1
+    [ 14] 91.5E 3641 V 1
+    [ 14] 91.5E 4120&372
+    [ 14] 91.5E 4120&372
+    [ 14] 91.5E 3760&396
+    [ 14] 91.5E 3760&396
+    [ 14] 91.5E 3760&396
+    [ 14] 91.5E 3760&396
+    [ 11] 3717 H 7500
+    [ 11] 3717 H 7500
+    [ 14] 166E 4140 H 28
+    [ 14] 166E 4140 H 28
+    [ 14] 166E 3980&4040
+    [ 14] 166E 3980&4040
+    [  9] 166E 3760
+    [  9] 166E 3760
+    [ 14] 166E 3830 H 14
+    [ 14] 166E 3830 H 14
+    [ 14] 166E 3860 H 28
+    [ 14] 166E 3860 H 28
+    [ 14] 166E 3940 H 27
+    [ 14] 166E 3940 H 27
+    [ 14] 166E 4020 H 26
+    [ 14] 166E 4020 H 26
+    [ 14] 166E 4060 H 26
+    [ 14] 166E 4060 H 26
+    [ 12] 4180 H 30000
+
+======================================================================
+SECTION: DATA_26KB  @ 0x0081F1A3-0x008257A8  len=26,117
+  hex: 1f 00 00 d5 81 f9 4f 24 11 2d 62 1b 57 42 42 43 20 50 61 63 6b 61 67 65 00 00 00 e7 2c 44 ac 01 ff ff ff 00 00 ff ff ff 1f 00 00 11 11 11 33 11
+  asc: ......O$.-b.WBBC Package....,D................3.
+  String count: 10
+    [ 12] WBBC Package
+    [  8] bin9gosI
+    [  8] """f"""f
+    [  8] xxxhxxxh
+    [ 10] bin9gosI7E
+    [ 10] bin9gosI7E
+    [ 10] bin9gosI7E
+    [ 10] bin9gosI7E
+    [ 10] bin9gosI7E
+    [ 10] bin9gosI7E
+
+======================================================================
+SECTION: DATA_108b  @ 0x00826222-0x0082628E  len=108
+  hex: 10 11 02 00 35 f6 b9 21 7c 2b a8 3f 38 c3 c1 fd 23 a5 d3 21 08 41 6e 74 2d 31 20 45 75 72 6f 00 00 00 00 00 ff ff ff ff ff ff ff ff ff ff ff ff
+  asc: ....5..!|+.?8...#..!.Ant-1 Euro.................
+  String count: 2
+    [ 10] Ant-1 Euro
+    [ 13] Bulsat ECM-IV
+
+======================================================================
+SECTION: DATA_2KB_TAN  @ 0x00826A0E-0x008272B1  len=2,211
+  hex: 01 00 00 00 5f db 06 aa 13 64 e5 00 01 54 61 6e 64 62 65 72 67 00 00 00 00 00 00 ff 02 00 00 00 ca 13 8b f8 9f be 0e 00 01 54 61 6e 64 62 65 72
+  asc: ...._....d...Tandberg....................Tandber
+  String count: 78
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [ 11] 103W-4120-H
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+    [  8] Tandberg
+
+======================================================================
+SECTION: DATA_6KB_END  @ 0x00827FEE-0x008297E1  len=6,131
+  hex: e2 00 cd d6 ef 54 89 fa 8a 05 94 94 4d 7d 8d 4d 4a 7a 56 32 6a 80 4b eb 79 45 f3 2b 84 51 d4 af 5c b6 ee 32 a1 63 60 5a 6b 0f d6 f4 cb 7f 2d 88
+  asc: .....T......M}.MJzV2j.K.yE.+.Q..\..2.c`Zk.....-.
+  String count: 11
+    [  6] MJzV2j
+    [  7] $uBe1,#
+    [  7] [?/8AdG
+    [  7] ,ds'+$I
+    [  6] rw'q+>
+    [  6] |]hsPC
+    [  7] uVcN9Hi
+    [  7] D}+<KCS
+    [  6] |A\G[p
+    [  8] .{JC?2/m
+    [  6] r6TU{P
+
+
+======================================================================
+STRG SECTION DEEP SCAN
+  Size: 71,636 bytes
+  Header: 53 54 52 47 01 02 06 00 74 74 78 00 00 00 00 00 90 5a 00 00 6c 12 00 00 98 00 00 00 30 04 09 00
+  >> STRG magic confirmed!
+  count field: 393729 (0x00060201)
+  version/flags: 7894132 (0x00787474)
+  Bytes 0-63: 53 54 52 47 01 02 06 00 74 74 78 00 00 00 00 00 90 5a 00 00 6c 12 00 00 98 00 00 00 30 04 09 00 65 6e 00 00 14 00 00 00 5d 7f 00 00 f2 2f 00 00 04 13 00 00 8a f0 17 00 61 72 00 00 18 00 00 00
+  All strings (min 4): 857
+    [  4] STRG
+    [  6] 'e9^]1
+    [  4] i}`,
+    [  4] ;CqL
+    [  4] F0]t
+    [  4] @q?!
+    [  7] ?r`^B3*
+    [  5] 3NvtG
+    [  5] -`2;n
+    [  4] vg@'
+    [  4] D~NV
+    [  4] gjyD
+    [  4]  ;%B
+    [  5] Ov0-e
+    [  4] kd`D
+    [  4] ^LtK
+    [  5] k\j4n
+    [  4] cK2S
+    [  7] Mtdoz9t
+    [  5] 5J2nH
+    [  4] dy~o
+    [  7] FJf5$6W
+    [  5] :>:<r
+    [  4] $=UP
+    [  6] Uf),&+
+    [  6] H!.\It
+    [  6] CFO0[(
+    [  4] j>1#
+    [  6] sG92dD
+    [  4] OB`=
+    [  5] 8;p\]
+    [  4] s'4U
+    [  5] U4R*=
+    [  6] M"%.1S
+    [  5] 8SiTT
+    [  4] 'gRs
+    [  4] [_:3
+    [  4] M_)-
+    [  4] XkQ.
+    [  4] B`rR
+    [  4] uI*J
+    [  4] I3IM
+    [  4] oD)a
+    [  5] ${whR
+    [  5] [Cex\
+    [  4] 6Vvp
+    [  4] 0C_1
+    [  5] %X<8$
+    [  7] 52Qg1sJ
+    [  4] v`uo
+    [  4] $_.-
+    [  4]  9#b
+    [  6] f5|Qvq
+    [  4] )GKd
+    [  4] V:]V
+    [  4] Nu&6
+    [  5] ,-X#}
+    [  5] 0_SBy
+    [  4] e/<+
+    [  4] PpLA
+    [  4] 6)"_
+    [  5]  Nwc+
+    [  4] 'Bo~
+    [  4] hck3
+    [  5] `"-q>
+    [  4] `"|N
+    [  5] uQVhL
+    [  4] FFC_
+    [  5] O?H(t
+    [  4] )Rk#
+    [  4] =<&D
+    [  5] _bes\
+    [  4] =#,K
+    [  4] QsQP
+    [  5] -Y@CB
+    [  6] %$+~Yv
+    [  4] |59N
+    [  4] n-$A
+    [  4] dV1|
+    [  5] k|8Qy
+    [  7] {ECi"Iq
+    [  5] N#8$v
+    [  4] CXPB
+    [  4] Tm,v
+    [  4] s|c#
+    [  4] QS)Q
+    [  4] z$p.
+    [  5] LBY/y
+    [  4] QJ1s
+    [  4] ADt*
+    [  4] 3`51
+    [  4] eX06
+    [  4] *W}k
+    [  4] :}7s
+    [  4] $LPU
+    [  4] Gf(t
+    [  6] ^Cm/|r
+    [  6] 1Xm^5<
+    [  4] O?k-
+    [  4] >f=*
+    [  4] y8[0
+    [  5] Km4#n
+    [  4] ty\y
+    [  4] P?R<
+    [  4] zDnz
+    [  4] /Hs~
+    [  5] $4%X=
+    [  4] *DOP
+    [  5] D^Su,
+    [  4] E{at
+    [  4] i#85
+    [  4] |WRW
+    [  4] [Fic
+    [  4] iEyQ
+    [  6] #M]z(a
+    [  4] l;Yq
+    [  4] [%Nx
+    [  4] C]4A
+    [  4] tAb(
+    [  4] d;xN
+    [  4] |n\E
+    [  4] &D R
+    [  4] :'=y
+    [  4] fb{/
+    [  4] xb:Z
+    [  5] z)/[(
+    [  4] {A7_
+    [  4] yfiZ
+    [  4] O:,l
+    [  4] 1IdB
+    [  4] M9Y7
+    [  4] Kj|2
+    [  5] d+*-*
+    [  4] A+Gf
+    [  6] ])In^Q
+    [  4] "DPS
+    [  4] (*)%
+    [  5] iyRAQ
+    [  6] o^TEB?
+    [  4] z,(X
+    [  4] nv?5
+    [  4] kW:>
+    [  5] n"K;a
+    [  4] w9(*
+    [  4] (flW
+    [  5] lx9 a
+    [  4] y8L5
+    [  4] vs1O
+    [  6] 'q]z"7
+    [  4] F@#3
+    [  4] o%TP
+    [  4] z0K}
+    [  4] jn[t
+    [  5] IrG4t
+    [  4] @`IQ
+    [  6] pKd"z?
+    [  4] hM\B
+    [  5] He@]A
+    [  7] &.w?vj"
+    [  4] HZZa
+    [  4] |WW.
+    [  5] %tR#L
+    [  6] oM]O>i
+    [  5] ;s"IG
+    [  4] @"CM
+    [  4] ,~.)
+    [  4] lpr$
+    [  4] 3I%z
+    [  5] 6cMxS
+    [  4] h04g
+    [  4] ~Vo9
+    [  4] *15R
+    [  4] k=&G
+    [  4] ?m%+
+    [  4] B W{
+    [  6] aH+!^"
+    [  4] 1?,W
+    [  6] +2NZ?3
+    [  7] %/WwuQI
+    [  6] sV\z^.
+    [  5] ?\sI.
+    [  5] qE36c
+    [  6] 8ENmbz
+    [  6] h"DU:?
+    [  4] CS8O
+    [  6] Kt&['+
+    [  4] Z&IC
+    [  4] #jjs
+    [  5] ;loa/
+    [  5] };?bb
+    [  9] ix^=F}=?0
+    [  5] -NY:5
+    [  4] brWv
+    [  5] -/--V
+    [  5] L>YGA
+    [  4] T0(5
+    [  7] |an1An`
+    [  4] g$6U
+    [  7] 3<9N75(
+    [  5] VcF[4
+    [  5] (A8EJ
+    [  4] SEm<
+    [  4] 9~tz
+    [  4] rW{~
+    [  4] _eyC
+    [  4] 5;'w
+    [  4] lA]$
+    [  4] >E8Z
+    [  4] >fb5
+    [  5] G+A-1
+    [  4] x}El
+    [  4] '8tN
+    [  5] =elr7
+    [  4] /BlF
+    [  4] vK{e
+    [  4] e0+5
+    [  5] Y<n=+
+    [  5] d`?!w
+    [  4] :^cx
+    [  5] A0rMn
+    [  4] gUHD
+    [  4] ;HBu
+    [  5] GQ-K/
+    [  4] FGWX
+    [  4] R##<
+    [  4] c35{
+    [  4] 3Y-x
+    [  5] B[{MX
+    [  4] w?3x
+    [  5] WS#Mj
+    [  4] Kbav
+    [  4] \ei.
+    [  5] /!B6X
+    [  4] am:j
+    [  4] =OGu
+    [  5] 1$\h`
+    [  5] fKvdW
+    [  5] IR,6q
+    [  4] {.a=
+    [  4] <vkG
+    [  4] AL1?
+    [  5] Pc)-2
+    [  4] :Ia]
+    [  4] _i9X
+    [  4] ;4t+
+    [  4] n;?N
+    [  5] D7Ie,
+    [  5] .EwCK
+    [  4] +Ax2
+    [  4] t.Yg
+    [  4] 7RwF
+    [  4] (%9J
+    [  4] `s'R
+    [  4] T1q"
+    [  4] R!eK
+    [  5] sTC'X
+    [  4] \#Mm
+    [  5] cOk.1
+    [  6] F^).H2
+    [  4] 29;4
+    [  4] rCsA
+    [  4] P@)L
+    [  5] oREV#
+    [  4] IdV}
+    [  5] D\LPk
+    [  4] dZcs
+    [  4] )-55
+    [  4] R5M:
+    [  5] ePRw2
+    [  4] S0e6
+    [  4] K-L{
+    [  4] }tHR
+    [  6] ><SdHv
+    [  4] `.2>
+    [  4] X'PO
+    [  4] xV\(
+    [  5] W:~6d
+    [  4] {$3o
+    [  4] X[xt
+    [  4] 6-))
+    [  5] uu"RG
+    [  4] ^U5D
+    [  4] &!Pk
+    [  5] "SSv2
+    [ 10] Hd u6z'r A
+    [  4] P,u4
+    [  5] [}5?^
+    [  4] C@ge
+    [  4] <2MS
+    [  5] 6^;ZN
+    [  4] {v(c
+    [  4] 2'/~
+    [  5] K'=[C
+    [  4] gNOF
+    [  4] e5u?
+    [  4] ` %$
+    [  6] ]cM>-%
+    [  4] _lF,
+    [  6] bzX`'3
+    [  4] D:E0
+    [  4] .p70
+    [  4] 3k`l
+    [  4] =b$n
+    [  4] A=Lc
+    [  5] $(g/3
+    [  4] I;i1
+    [  5] bgg==
+    [  5] mZq:E
+    [  5] KhPI4
+    [  4] +$uf
+    [  4] 51[I
+    [  5] -cLuO
+    [  6] /HlAha
+    [  4] &Jv0
+    [  8] G<X=nR%4
+    [  4] M,fz
+    [  4] Lz*F
+    [  4] ]3ly
+    [  5] N+'DE
+    [  5] `\Sb'
+    [  4] vD8K
+    [  4] C5Qe
+    [  5] Ld?U`
+    [  4] !'Ud
+    [  4] Xi*-
+    [  7] ]6O'+^o
+    [  4] (HKA
+    [  4] j{/%
+    [  5] 8r8rD
+    [  4] 84..
+    [  4] 2p51
+    [  7] cyV?Gu<
+    [  6] 6N{e2U
+    [  4] _QGg
+    [  5] mE|R"
+    [  6] <!|7np
+    [  4] H5`[
+    [  4] +Slo
+    [  4] jnOM
+    [  4] `gIJ
+    [  4] y{Yu
+    [  4] X%-z
+    [  4] G0Uc
+    [  4] @tz2
+    [  5] 5B#cB
+    [  7] <*a<ho+
+    [  6] mly<+*
+    [  5] sPo4M
+    [  4] <-^"
+    [  5] xL~.3
+    [  5] VI>sm
+    [  4] 7@ ,
+    [  4] *A,A
+    [  4] [WLa
+    [  4] ~w*6
+    [  4] 7l;?
+    [  4] \Z^\
+    [  4]  ;G-
+    [  4] YD4t
+    [  4] _69v
+    [  6] 0:f1{Q
+    [  4] w$f9
+    [  4] .QCg
+    [  6] q-.j)l
+    [  4] +5h[
+    [  5] WiKYN
+    [  4] jg1d
+    [  7] %25$[jJ
+    [  4] /,]g
+    [  4] AM_6
+    [  4] %wJ1
+    [  4] .W"2
+    [  4] MtiG
+    [  5] rxzB~
+    [  4] W1}%
+    [  4] @(3B
+    [  5] {Y=Go
+    [  4] }V92
+    [  4] '[|l
+    [  4] D,fu
+    [  5] 1&[P1
+    [  4] 3D[E
+    [  5] 7F CZ
+    [  5] MWX^R
+    [  5] w2u?3
+    [  4] BUm:
+    [  4] <G3P
+    [  6] |rIeK`
+    [  4] mu(x
+    [  4] rD3,
+    [  4] >l;|
+    [  5] rU|U}
+    [  6] ,eUE*7
+    [  4] =n[|
+    [  5] <y{P>
+    [  4] )ySL
+    [  5] 02VC`
+    [  5] #1)@7
+    [  4] N}n4
+    [  6] U&r{'K
+    [  4] +fpC
+    [  6] N:y-!o
+    [  8] 4Vh &GCW
+    [  4] ~w#A
+    [  5] Tv6N'
+    [  4] >[(G
+    [  5] f\t,C
+    [  6] CnW!?<
+    [  5] =Mud~
+    [  7] n76EG.5
+    [  4] -L?.
+    [  4] 38%/
+    [  4] *Mx}
+    [  4] ki@^
+    [  4] Ko>*
+    [  5] WFRJ 
+    [  4] &3g$
+    [  4] +L]X
+    [  4] /n'>
+    [  5] -4(\Y
+    [  4] YZYd
+    [  4] plrw
+    [  5] `[;t#
+    [  4] Kb=O
+    [  6] 69xhXy
+    [  4] LL*o
+    [  4] !P;s
+    [  4] 4Bb7
+    [  4] |eyH
+    [  4] =_#K
+    [  7] snh49~K
+    [  5] ;R^dS
+    [  5]  vjkH
+    [  4] G`Q4
+    [  4] HO"B
+    [  4] Crk1
+    [  5] t&#-r
+    [  5] Y^I_z
+    [  4] 2wP_
+    [  4] ?l=w
+    [  7] Y94M}'v
+    [  4] EM[[
+    [  4] &n*'
+    [  4] ~ks$
+    [  6] Vax9 o
+    [  5] r5}R{
+    [  5] )uPl0
+    [  4] eWBI
+    [  4] dl@r
+    [  7] v WaCSd
+    [  4] HM>!
+    [  4] ~UV\
+    [  4] Z.G4
+    [  5] ob%<~
+    [  4] ubfD
+    [  5] |P|@;
+    [  4] R$h7
+    [  5] W|Gh>
+    [  5] ddQKm
+    [  4] fA=|
+    [  4] E[HK
+    [  4] s)Du
+    [  4] w<LL
+    [  4] na3`
+    [  5] 'm:Wo
+    [  9] 1DUx*fEtg
+    [  5] b{ hM
+    [  4] Y1|S
+    [  4] Xg!O
+    [  4] '^?7
+    [  6] A*22+!
+    [  4] rA4T
+    [  6] n=?x66
+    [  4] EA*"
+    [  4] f*S6
+    [  5] 5pG#Y
+    [  4] sr"g
+    [  4] X#`d
+    [  4] [Dc!
+    [  4] mh/,
+    [  4] 4'.y
+    [  5] ;6gPL
+    [  5] R3so2
+    [  5] 8DDep
+    [  4] zJ|O
+    [  4] Jy{3
+    [  4] \EDT
+    [  4] o|[7
+    [  7] 0|Z9*s^
+    [  4] (>Gc
+    [  4] ek]*
+    [  4] DEEV
+    [  4] +rvB
+    [  4] S(nd
+    [  4]  ff4
+    [  5] rNzFg
+    [  7] >*&/cXG
+    [  5] 709&>
+    [  5] QJq>3
+    [  5] 'b5\?
+    [  5] TGv<5
+    [  4] mEry
+    [  5] cf;w|
+    [  4] _G:d
+    [  4] |'C+
+    [  5] ?_)n0
+    [  4] JczB
+    [  4] bg2c
+    [  4] #!dj
+    [  4] V&&c
+    [  4] AAh{
+    [  6] $ rE!?
+    [  4] tsX0
+    [  5] 39\bz
+    [  4] iU:[
+    [  4] xtix
+    [  4] ~vJz
+    [  7] Uf\g\o6
+    [  5] ;PY]c
+    [  4] EE/q
+    [  4] #ahu
+    [  4] =?Sl
+    [  4] DG`a
+    [  5] ?(nKl
+    [  4] ;WT,
+    [  4] \ZMM
+    [  4] [)k(
+    [  5] sP'9i
+    [  4] .;_^
+    [  4] _!W`
+    [  4] @m*&
+    [  7] hr8p{Z2
+    [  5] l_FKP
+    [  4] F`LR
+    [  6] jJiR=m
+    [  4] KX'6
+    [  4] 5=&J
+    [  4] CYrK
+    [  4] z')3
+    [  4] <udC
+    [  8] -.|S}8W&
+    [  5] ;r$D'
+    [  6] mBw3mg
+    [  4] tk|/
+    [  7] #5Ck)h/
+    [  4] 5kkI
+    [  4] T'=k
+    [  4] JnwC
+    [  5] _|R(N
+    [  4] \H-;
+    [  4] 9-t]
+    [  4] aY\S
+    [  5] i=*Kr
+    [  6] mSAqlX
+    [  4]  l"6
+    [  4] 5bx3
+    [  5] i0-;*
+    [  5] !5-@e
+    [  5] 8%\MC
+    [  4] ;A>F
+    [  4] %a-w
+    [  4] -|-M
+    [  5] k:Lw4
+    [  5] !6&40
+    [  4] &))w
+    [  6] ^;5wPQ
+    [  6] &*>52O
+    [  4] B2=%
+    [  4] =RQ5
+    [  5] 5vFjI
+    [  4] %fGn
+    [  4] w_l0
+    [  4] vmiC
+    [  4] :P!U
+    [  4] oKz=
+    [  4] ,*W=
+    [  4] *,&@
+    [  4] xaVv
+    [  4] Psx^
+    [  4] |}Zp
+    [  5] C'|x1
+    [  4] n~,l
+    [  5] Ej,I|
+    [  5] Xonml
+    [  4] ]&U\
+    [  4] ;~:>
+    [  4] e(`f
+    [  4] :[<`
+    [  4] qh|K
+    [  4] N=OF
+    [  4] :UYV
+    [  4] }ka"
+    [  4] ){(}
+    [  5] e;a{t
+    [  5] _c<}%
+    [  4] `]{8
+    [  4] f6mr
+    [  4] J#Q5
+    [  4] jt7w
+    [  4] fE&?
+    [  5] mBRjK
+    [  4] I%Ix
+    [  4] p}`s
+    [  5] D<~xq
+    [  5] YL@c)
+    [  4] PGWJ
+    [  4] fI6B
+    [  6] >J|O!"
+    [  4] k"!{
+    [  8] wp<|j"7[
+    [  4] ja4:
+    [  4] Q8MS
+    [  4] BjWr
+    [  4] @BLr
+    [  4] [gf<
+    [  6] ^!Kfu+
+    [  5] Y*b^7
+    [  6] B8ul#R
+    [  5] x;J(]
+    [  4] U<#R
+    [  7] *I%BV?v
+    [  5] 'k[TY
+    [  4] 12_G
+    [  4] & !Q
+    [  4] [/H_
+    [  4] ~nR|
+    [  4] LbMV
+    [  4] P{t~
+    [  5] _Kp~o
+    [  4] 'E+Y
+    [  5] ECNf>
+    [  4] bm_P
+    [  6] otBa%s
+    [  4] dxX4
+    [  4] @`Kz
+    [  7] '^@s-jI
+    [  5] '|Q;`
+    [  4] u':o
+    [  5] y<rV"
+    [  4] 9/_{
+    [  4] =bfw
+    [  4] 0KTe
+    [  4] ?)ne
+    [  4] 8]bi
+    [  4] 8Mr1
+    [  4] 'y8.
+    [  4] A*{Q
+    [  4] ';dF
+    [  5] QxYN&
+    [  4] /FE:
+    [  4] CWJ$
+    [  4] @9Wh
+    [  4] sr@.
+    [  5] %wdf7
+    [  4] RrtN
+    [  4] 01#_
+    [  4] LCI7
+    [  4] vx'y
+    [  5] `G*Y1
+    [  4] ^R!>
+    [  4] /"^Q
+    [  6] [J9,IU
+    [  5] rx;}{
+    [  5] *]PA<
+    [  4] V6j&
+    [  4] 9_O4
+    [  6] *$3kd?
+    [  4] &[K|
+    [  4] zT&{
+    [  7]  N"bp\_
+    [  4] 2y:1
+    [  6] :8=Kun
+    [  4] MLmv
+    [  4] f/Ws
+    [  6] y4$e{c
+    [  4] |-~b
+    [  4] )'Ck
+    [  4] Z]q&
+    [  4] RA=K
+    [  5] <-<Ey
+    [  4] $skq
+    [  4] 6;(O
+    [  4] WJNs
+    [  4] ^~[*
+    [  5] ~g3h9
+    [  6] !gE4X;
+    [  4] 77F#
+    [  5] F'30)
+    [  4] .yAz
+    [  4] Ts*O
+    [  4] N&d$
+    [  5] @u=)2
+    [  4] &10O
+    [  7] H #o\NI
+    [  6] U98R;0
+    [  5] )gsVw
+    [  4] A {D
+    [  4] Y2$8
+    [  4] s![F
+    [  4] s566
+    [  6] bo<Wi:
+    [  4] "o\u
+    [  4] A$&y
+    [  4] {>'6
+    [  4] ZSy,
+    [  4] f#W(
+    [  4] L`vg
+    [  4] uC]Q
+    [  4] >UzJ
+    [  4] %mUu
+    [  4] 9NiJ
+    [  9] D0F`~]T(:
+    [  4] q:z[
+    [  4] xyv`
+    [  4] >#`o
+    [  6] J+(=Cg
+    [  5] 9R#-j
+    [  6] .~NA"_
+    [  4] |63V
+    [  5] 9P{ |
+    [  4] 7,[&
+    [  4] 4?2j
+    [  4] f\Lh
+    [  4] D\Cz
+    [  5] [\U:T
+    [  4]  !v5
+    [  4] \3;$
+    [  4] Kt#R
+    [  4] iQc.
+    [  4] !wZ8
+    [  5] ]g>'}
+    [  4] G[1?
+    [  4] )%f;
+    [  4] )&8S
+    [  7] @odDjE/
+    [  6] bS$MwH
+    [  4] `0]R
+    [  4] xO0"
+    [  4] 0MgQ
+    [  4] )zXU
+    [  4] 5VhL
+    [  5] vMz}G
+    [  4] XN]k
+    [  4] *-t0
+    [  5] fi>na
+    [  6] E"H9,&
+    [  4] z>O>
+    [  7] )+*?zB/
+    [  4] MB"3
+    [  4] /68E
+    [  4] '3Ok
+    [  5] $:u,>
+    [  4] 1`e?
+    [  5] j6[Wp
+    [  4] {e_Z
+    [  4] EbL>
+    [  5] UHB1&
+    [  5] /8zK>
+    [  4] $JOF
+    [  4] LUwi
+    [  5] 9S`GD
+    [  4] Iw0#
+    [  4] ,BET
+    [  4] Hw8I
+    [  4] UoeD
+    [  4] |B"6
+    [  5] dF0)u
+    [  4] pI,l
+    [  5] k([AV
+    [  4] g)2)
+    [  4] 8h7-
+    [  6] bCj7#w
+    [  5] cni2Z
+    [  8] vAD]::X{
+    [  4] Ui?p
+    [  5] <2}aO
+    [  5] #B:^I
+    [  4] Pb3e
+    [  4] |o+^
+    [  4] nKqm
+    [  7] JwAdlqv
+    [  5] 8T|`F
+    [  7] +D_ufY-
+    [  5] TQZ_>
+    [  4] c?>b
+    [  4] wt=V
+    [  4]  o-n
+    [  4] 6CJf
+    [  6] cRW[-J
+    [  4] ^[,L
+    [  4] bOh*
+    [  5] JvKA:
+    [  8] iJOkO9n;
+    [  4] p1^V
+    [  4] bO%3
+    [  5] BvcB~
+    [  4] 4K,T
+    [  4] F?XJ
+    [  4] Bs"I
+    [  4] fLi|
+    [  4] ?Ec8
+    [  5] Xof6X
+    [  5] '{Ni4
+    [  5] [v]D#
+    [  5] VeT/m
+    [  7] yASl@TW
+    [  4] %P{}
+    [  4] tr[y
+    [  4] ek5v
+    [  4] 0XRR
+    [  6] )CR&Y%
+    [  5] };O6S
+    [  4] 1`J^
+    [  4] ;3#+
+    [  4] ;dc[
+    [  5] &jmwH
+    [  6] R)`vs(
+    [  5] T=L"\
+    [  4] (=`3
+    [  5] 2u<H+
+    [  4] oK0N
+    [  4] OGE?
+    [  5] ;6Uo#
+    [  4] *piH
+    [  4] :H<)
+    [  4] pFCA
+    [  4] ~fu$
+    [  9] IQ|"Q!mm"
+    [  4] @eU^
+    [  5] !$.in
+    [  5] ^[PlW
+    [  4] _N&N
+    [  4] dZ*q
+    [  5] VE**n
+    [  5] w##=D
+    [  4] |WQ+
+    [  4] WH@+
+    [  4] Aiy,
+    [  6] GP4[`b
+    [  6] NbV[`X
+    [  4] 'Vj 
+    [  4] 2xPe
+    [  6] D]U{d.
+    [  4] uL<]
+    [  4] vp$h
+    [  4] %RR0
+    [  4] ]25L
+    [  4] o`Qr
+    [  5] ]enAh
+    [  4] %1Vh
+    [  4] dV1S
+    [  4] `jI$
+    [  4] `0dN
+    [  4] 6Vlm
+    [  4] }-7R
+    [  4]  o/2
+    [  5] =()h}
+
+
+======================================================================
+DATA_2KB_TAN DEEP SCAN
+  Size: 2,211 bytes
+  Full hex dump (first 256 bytes):
+    0000: 01 00 00 00 5f db 06 aa 13 64 e5 00 01 54 61 6e   ...._....d...Tan
+    0010: 64 62 65 72 67 00 00 00 00 00 00 ff 02 00 00 00   dberg...........
+    0020: ca 13 8b f8 9f be 0e 00 01 54 61 6e 64 62 65 72   .........Tandber
+    0030: 67 00 00 00 00 00 00 ff 03 00 00 00 52 61 4f 2c   g...........RaO,
+    0040: b0 5d 38 01 01 54 61 6e 64 62 65 72 67 00 00 00   .]8..Tandberg...
+    0050: 00 00 00 ff 04 00 00 00 34 5e 9b 5b 97 d5 bc 01   ........4^.[....
+    0060: 01 54 61 6e 64 62 65 72 67 00 00 00 00 00 00 ff   .Tandberg.......
+    0070: 05 00 00 00 9e fb 52 cd d0 fb a1 01 01 54 61 6e   ......R......Tan
+    0080: 64 62 65 72 67 00 00 00 00 00 00 ff 15 00 00 00   dberg...........
+    0090: 05 17 dc 65 37 16 6f 00 01 54 61 6e 64 62 65 72   ...e7.o..Tandber
+    00A0: 67 00 00 00 00 00 00 ff 16 00 00 00 4a 2f d3 04   g...........J/..
+    00B0: 75 3d 8c 00 01 54 61 6e 64 62 65 72 67 00 00 00   u=...Tandberg...
+    00C0: 00 00 00 ff 16 00 00 00 23 57 51 d9 7f 32 c2 01   ........#WQ..2..
+    00D0: 01 54 61 6e 64 62 65 72 67 00 00 00 00 00 00 ff   .Tandberg.......
+    00E0: 17 00 00 00 5b 70 f0 07 00 00 00 00 01 47 65 74   ....[p.......Get
+    00F0: 54 56 00 00 00 00 00 00 00 00 00 ff ce 00 00 00   TV..............
+
+
+======================================================================
+DATA_14KB DEEP SCAN (0x0081B002)
+  Size: 14,560 bytes
+  Strings (min4): 535
+    [ 11] 12303V27500
+    [ 11] 12303V27500
+    [ 14] Fox-News(12380
+    [ 14] Fox-News(12380
+    [ 11] 12380V28000
+    [ 11] 12380V28000
+    [ 11] 12303V27500
+    [ 11] 12303V27500
+    [ 11] 12303V27500
+    [ 11] 12303V27500
+    [ 14] HBO (4oW 10842
+    [ 14] HBO (4oW 10842
+    [ 14] 7W 11595 V 275
+    [ 14] 7W 11595 V 275
+    [ 14] The Fight Netw
+    [ 14] The Fight Netw
+    [ 14] MTN Worldwide 
+    [ 14] MTN Worldwide 
+    [  4] ;'k6
+    [ 14] MTN Worldwide 
+    [ 14] MTN Worldwide 
+    [ 14] CNN (22oW 1156
+    [ 14] CNN (22oW 1156
+    [ 14] Abertis (30oW 
+    [ 14] Abertis (30oW 
+    [  4] q;gw
+    [ 14] Overon (30oW 1
+    [ 14] Overon (30oW 1
+    [ 14] Antena 3 (30oW
+    [  4] ;'k6
+    [ 10] 4133V11250
+    [ 10] 4133V11250
+    [ 14] AFN 4126-L-110
+    [ 14] AFN 4126-L-110
+    [ 14] America (40.5o
+    [ 14] America (40.5o
+    [ 14] Wobi-TV (40.5?
+    [ 14] Wobi-TV (40.5?
+    [ 14] Fox Internatio
+    [ 14] Fox Internatio
+    [  4] -yzz
+    [ 14] AMC Networks (
+    [ 14] AMC Networks (
+    [ 14] Fox Internatio
+    [ 14] Fox Internatio
+    [ 14] ESPN (40.5oW 3
+    [ 14] Globecast (40.
+    [ 14] Globecast (40.
+    [ 14] VePlus TV (40.
+    [ 14] VePlus TV (40.
+    [ 14] Venevision (40
+    [ 14] Venevision (40
+    [ 14] ESPN HD (40.5o
+    [ 14] ESPN HD (40.5o
+    [ 14] VTV Uruguay (4
+    [ 14] VTV Uruguay (4
+    [ 12] 3758 H 18500
+    [ 12] 3758 H 18500
+    [ 14] Cinecanal/Fox 
+    [ 14] Cinecanal/Fox 
+    [ 14] Turner (43oW 3
+    [ 14] Turner (43oW 3
+    [ 14] TNT Sudamerica
+    [ 14] TNT Sudamerica
+    [ 14] Discovery Suda
+    [  4] x0_A
+    [ 14] Discovery Suda
+    [ 14] CNN Sudamerica
+    [ 14] CNN Sudamerica
+    [ 14] Artear (43oW 4
+    [ 14] Artear (43oW 4
+    [ 14] Playboy Sudame
+    [ 14] Playboy Sudame
+    [ 12] 4048 V 20832
+    [ 12] 4048 V 20832
+    [ 12] 4087 V 27500
+    [ 14] Viacom Media N
+    [ 14] Viacom Media N
+    [ 14] XX (47.5oW 616
+    [  6] s33333
+    [ 14] XX (47.5oW 616
+    [  9] 4163V9247
+    [  9] 4163V9247
+    [  4] ;'k6
+    [  9] 4163V9247
+    [  9] 4163V9247
+    [  7] vVWWWpp
+    [ 12] 3808 V 26666
+    [  6] 4D6Ftu
+    [ 12] 3808 V 26666
+    [ 14] Telefe (55oW 3
+    [ 14] Telefe (55oW 3
+    [ 14] Fox (55oW 3845
+    [  5] 2%S(>
+    [ 14] Fox (55oW 3845
+    [ 14] PFC Internacio
+    [ 14] PFC Internacio
+    [  4] $VWx
+    [ 14] International 
+    [  4] @#6u
+    [ 14] International 
+    [ 14] Fox Sports Chi
+    [ 14] Fox Sports Chi
+    [ 14] TV Globo (55oW
+    [ 14] TV Globo (55oW
+    [ 12] 4177 V 30000
+    [ 12] 4177 V 30000
+    [ 11] 3842 H 2580
+    [ 11] 3842 H 2580
+    [  4] $VWx
+    [ 14] SportsMax(4003
+    [  4] @#6u
+    [ 14] SportsMax(4003
+    [ 14] Fox Sudamerica
+    [ 14] Fox Sudamerica
+    [ 14] Turner (58oW 3
+    [ 14] Turner (58oW 3
+    [ 14] Caracol (58oW 
+    [ 14] Caracol (58oW 
+    [ 14] Intelsat (58oW
+    [ 14] Intelsat (58oW
+    [ 14] Discovery Bras
+    [ 14] Discovery Bras
+    [ 14] NHK World Netw
+    [ 14] NHK World Netw
+    [ 14] Viacom Media N
+    [ 14] Viacom Media N
+    [ 14] Star One C3 (7
+    [ 14] Star One C3 (7
+    [ 14] WTTG-TV&CNN Ne
+    [  4] 4Vx`
+    [ 14] WTTG-TV&CNN Ne
+    [ 12] 3751 H 14410
+    [ 12] 3751 H 14410
+    [ 14] SNY (91oW 3765
+    [ 14] SNY (91oW 3765
+    [ 14] Fox (91oW 3820
+    [ 14] Fox (91oW 3820
+    [ 14] NBC Sports (91
+    [ 14] NBC Sports (91
+    [ 14] Altitude (91oW
+    [ 14] Altitude (91oW
+    [ 14] Comcast Sports
+    [ 14] Comcast Sports
+    [ 14] FSN (91oW 4100
+    [ 14] FSN (91oW 4100
+    [ 14] International 
+    [ 14] International 
+    [ 14] 31.XX&WPAFB (9
+    [ 14] 31.XX&WPAFB (9
+    [ 14] AFN (99oW 3900
+    [ 14] AFN (99oW 3900
+    [ 14] Viacom (101oW 
+    [ 14] Viacom (101oW 
+    [ 14] XX (101oW 3980
+    [ 14] XX (101oW 3980
+    [ 14] XX (101oW 4020
+    [ 14] XX (101oW 4020
+    [ 14] XX (103oW 1218
+    [ 14] XX (103oW 1218
+    [  5] &GEXk
+    [ 14] Ici Radio Cana
+    [ 14] Ici Radio Cana
+    [ 12] 3848 V 13842
+    [ 12] 3848 V 13842
+    [ 12] 4141 H 30000
+    [ 12] 4141 H 30000
+    [ 14] Cine Mexicano 
+    [ 14] Cine Mexicano 
+    [ 14] Panamericana T
+    [ 14] Panamericana T
+    [  4] q;gw
+    [ 12] 4172 V 18916
+    [ 12] 4172 V 18916
+    [ 14] Genesis Networ
+    [ 14] Genesis Networ
+    [ 14] Fantasy Sports
+    [ 14] Fantasy Sports
+    [ 14] Sony USA (121o
+    [ 14] Sony USA (121o
+    [ 14] A&E Networks (
+    [ 14] A&E Networks (
+    [ 14] Outdoor Channe
+    [ 14] Outdoor Channe
+    [ 14] XX (123oW 1173
+    [ 14] XX (123oW 1173
+    [  5] 8.=q"
+    [ 14] AMC Networks (
+    [ 14] AMC Networks (
+    [ 14] NBC-GOLF (125o
+    [ 14] NBC-GOLF (125o
+    [ 14] Turner (125oW 
+    [ 14] Turner (125oW 
+    [ 14] WGN (125oW 396
+    [ 14] WGN (125oW 396
+    [ 14] A&E Networks (
+    [ 14] A&E Networks (
+    [ 12] 3900 V 29079
+    [ 12] 3900 V 29079
+    [ 14] BBC (127oW 380
+    [ 14] BBC (127oW 380
+    [ 14] XX (127oW 3820
+    [  4] 50`\
+    [ 14] XX (127oW 3820
+    [ 12] 3780 H 29270
+    [ 12] 3780 H 29270
+    [ 14] Hallmark (131o
+    [ 14] Hallmark (131o
+    [ 14] GolTV (131oW 3
+    [ 14] GolTV (131oW 3
+    [ 14] Nesen (131oW 3
+    [ 14] Nesen (131oW 3
+    [ 12] 3910 V 13200
+    [ 12] 3910 V 13200
+    [ 14] A&E Networks (
+    [ 14] A&E Networks (
+    [ 12] 3960 V 30000
+    [ 12] 3960 V 30000
+    [ 14] Epix (131oW 39
+    [ 14] Epix (131oW 39
+    [ 12] 4100 H 30000
+    [ 12] 4100 H 30000
+    [ 14] Viacom (131oW 
+    [ 14] Viacom (131oW 
+    [ 14] Univision (131
+    [ 14] Univision (131
+    [ 14] TNT (133oW 402
+    [ 14] TNT (133oW 402
+    [ 12] 3860-V-28000
+    [ 12] 3860-V-28000
+    [ 12] 3720 V 30000
+    [ 12] 3720 V 30000
+    [ 14] Viacom (135oW 
+    [ 14] Viacom (135oW 
+    [ 12] 4040 V 30000
+    [ 12] 4040 V 30000
+    [ 14] Univision (135
+    [ 14] Univision (135
+    [ 14] Comcast Entert
+    [ 14] Comcast Entert
+    [ 14] Scripps Networ
+    [ 14] Scripps Networ
+    [ 14] Home Shopping 
+    [ 14] Home Shopping 
+    [  5] deFGe
+    [ 14] MavTV (135oW 4
+    [ 12] 3646-R-28000
+    [ 12] 3646-R-28000
+    [ 12] 3753-R-30000
+    [ 12] 3753-R-30000
+    [ 14] 12590-V-28000 
+    [ 14] 12590-V-28000 
+    [ 14] 16E Teleippica
+    [ 14] 16E Teleippica
+    [ 14] 16E Teleippica
+    [ 14] 16E Teleippica
+    [ 14] 4.8E 12149-H-2
+    [ 14] 4.8E 12149-H-2
+    [ 14] 4.8E 12226-H-2
+    [ 14] 4.8E 12226-H-2
+    [ 14] 4.8E 12322-V-2
+    [ 14] 4.8E 12322-V-2
+    [ 14] 4.8E 12418-H-2
+    [ 14] 4.8E 12418-H-2
+    [ 14] 4.8E 12303-H-2
+    [ 14] 4.8E 12303-H-2
+    [ 14] 4.8E 12303-H-2
+    [ 14] 4.8E 12360-V-2
+    [ 14] 4.8E 12360-V-2
+    [ 14] AFN 3800 L 275
+    [ 14] AFN 3800 L 275
+    [  8] 13E Bwtv
+    [  8] 13E Bwtv
+    [  6] 9E AFN
+    [  6] 9E AFN
+    [ 14] 68.5E 3974 H 1
+    [ 14] 68.5E 3974 H 1
+    [ 14] 68.5E 3845&375
+    [ 14] 68.5E 3845&375
+    [ 14] 68.5E 3845&375
+    [ 14] 68.5E 3739 H 2
+    [ 14] 68.5E 3739 H 2
+    [ 14] 68.5E 3974 V 1
+    [ 14] 68.5E 3974 V 1
+    [ 14] 68.5E 4064 H 1
+    [ 14] 68.5E 4064 H 1
+    [ 14] 68.5E 3900  H 
+    [ 14] 68.5E 3900  H 
+    [ 11] 4196 H 4000
+    [ 11] 4196 H 4000
+    [ 14] 91.5E 3641 V 1
+    [ 14] 91.5E 3641 V 1
+    [ 14] 91.5E 4120&372
+    [ 14] 91.5E 4120&372
+    [ 14] 91.5E 3760&396
+    [ 14] 91.5E 3760&396
+    [ 14] 91.5E 3760&396
+    [ 14] 91.5E 3760&396
+    [ 11] 3717 H 7500
+    [ 11] 3717 H 7500
+    [ 14] 166E 4140 H 28
+    [ 14] 166E 4140 H 28
+    [ 14] 166E 3980&4040
+    [ 14] 166E 3980&4040
+    [  9] 166E 3760
+    [  9] 166E 3760
+    [ 14] 166E 3830 H 14
+    [ 14] 166E 3830 H 14
+    [ 14] 166E 3860 H 28
+    [ 14] 166E 3860 H 28
+    [ 14] 166E 3940 H 27
+    [ 14] 166E 3940 H 27
+    [ 14] 166E 4020 H 26
+    [ 14] 166E 4020 H 26
+    [ 14] 166E 4060 H 26
+    [ 14] 166E 4060 H 26
+    [ 12] 4180 H 30000
+    [ 12] 4180 H 30000
+    [ 12] 4040-V-30000
+    [ 12] 4040-V-30000
+    [  4] .mLI
+    [ 11] 3851-V-9950
+    [ 11] 3851-V-9950
+    [ 14] 105.5E 3960-H-
+    [ 14] 105.5E 3960-H-
+    [ 13] 4180V (105.5)
+    [ 13] 4180V (105.5)
+    [ 14] 76.5E 3720 H 2
+    [ 14] 76.5E 3720 H 2
+    [ 14] 76.5E 3720 H 2
+    [ 14] 76.5E 3880&396
+    [ 14] 76.5E 3880&396
+    [ 14] 76.5E 3720 H 2
+    [ 14] 76.5E 3720 H 2
+    [ 14] 76.5E 3920 H 2
+    [ 14] 76.5E 3920 H 2
+    [ 12] 4151-H-14670
+    [ 12] 4151-H-14670
+    [ 14] AFN 4094 L 368
+    [ 14] AFN 4094 L 368
+    [ 14] 66E 3845 H 300
+    [ 14] 66E 3845 H 300
+    [ 12] 3984 H 14400
+    [ 12] 3984 H 14400
+    [ 14] 138E 3703 V 44
+    [ 14] 138E 3703 V 44
+    [ 11] 3847 H 4444
+    [ 11] 3847 H 4444
+    [  9] 4147V9245
+    [  9] 4147V9245
+    [  9] 4147V9245
+    [  9] 4147V9245
+    [  4] ;'k6
+    [ 10] 4133V11250
+    [ 10] 4133V11250
+    [  5] (Zh7O
+    [  5] 22.0W
+    [  5] 40.5W
+    [  5] 40.5W
+    [  5] 40.5W
+    [  5] 40.5W
+    [  5] 55.5W
+    [  5] 58.0W
+    [  5] 91.0W
+    [  5] 13.0E
+    [  5] 13.0E
+    [  5] 13.0E
+    [  5] 13.0E
+    [  5] 13.0E
+    [  5] 13.0E
+    [  5] |PO`b
+    [  5] 13.0E
+    [  5] 13.0E
+    [  4] 4.9E
+    [  4] 4.9E
+    [  4] 4.9E
+    [  4] 4.9E
+    [  4] 4.9E
+    [  4] 4.9E
+    [  4] 4.9E
+    [  4] 4.9E
+    [  4] 4.9E
+    [  4] 4.9E
+    [  4] 4.9E
+    [  4] 4.9E
+    [  5] 47.5W
+    [  5] 47.5W
+    [  5] 47.5W
+    [  5] 47.5W
+    [  5] 47.5W
+    [  5] 47.5W
+    [  5] 47.5W
+    [  5] 47.5W
+    [  5] 57.0E
+    [  5] 57.0E
+    [  5] 57.0E
+    [  5] 57.0E
+    [  5] 57.0E
+    [  5] 57.0E
+    [  5] 57.0E
+    [  5] 57.0E
+    [  5] 20.0W
+    [  5] 20.0W
+    [  5] 20.0W
+    [  5] 20.0W
+    [  5] 20.0W
+    [  5] 20.0W
+    [  5] 20.0W
+    [  5] 20.0W
+    [  5] 34.5W
+    [  5] 34.5W
+    [  5] 34.5W
+    [  5] 34.5W
+    [  5] 34.5W
+    [  5] 34.5W
+    [  5] 34.5W
+    [  5] 34.5W
+    [  5] 34.5W
+    [  4] 4.9E
+    [  4] 4.9E
+    [  4] 4.9E
+    [  4] 1.0W
+    [  4] 9.0E
+    [  4] 9.0E
+    [  4] 9.0E
+    [  6] 121.0W
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  4] &rgF
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 68.5E
+    [  5] 43.1W
+    [  6] 138.0E
+    [  6] 125.0W
+    [  6] 125.0W
+    [  6] 131.0W
+    [  6] 131.0W
+    [  5] 68.5E
+    [  5] 68.5E
+    [  6] 113.0W
+    [  6] 113.0W
+    [  6] 116.8W
+    [  4] ZN#E
+    [  5] 47.5W
+    [  5] 91.0W
+    [  5] 15.0W
+    [  5] 15.0W
+    [  6] r?szW7
+    [  5] 15.0W
+    [  5] 15.0W
+    [  5] 15.0W
+    [  5] 30.0W
+    [  5] 30.0W
+    [  4] tH"p
+    [  5] 16.0E
+    [  5] 16.0E
+    [  5] 91.5E
+    [  5] 91.5E
+    [  6] 105.5E
+    [  6] 105.5E
+    [  6] 166.0E
+    [  6] 166.0E
+    [  6] 166.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 66.0E
+    [  5] 76.5E
+    [  5] 66.0E
+    [  5] 76.5E
+    [  5] 76.5E
+  First 128 bytes:
+    0000: 06 0e 00 00 b8 dc 96 65 b4 83 0e 00 00 31 32 33   .......e.....123
+    0010: 30 33 56 32 37 35 30 30 00 00 00 00 06 0e 00 00   03V27500........
+    0020: 50 3a 6b fe 05 1e f4 00 01 31 32 33 30 33 56 32   P:k......12303V2
+    0030: 37 35 30 30 00 00 00 00 06 0e 00 00 7f 46 8e 8b   7500.........F..
+    0040: 04 7c de 00 00 46 6f 78 2d 4e 65 77 73 28 31 32   .|...Fox-News(12
+    0050: 33 38 30 00 06 0e 00 00 67 93 52 fc 3d ed f4 00   380.....g.R.=...
+    0060: 01 46 6f 78 2d 4e 65 77 73 28 31 32 33 38 30 00   .Fox-News(12380.
+    0070: 06 0e 00 00 7f 46 8e 8b 04 7c de 00 00 31 32 33   .....F...|...123
+
+
+======================================================================
+ARM_CODE SECTION (0x0000092E)
+  Size: 20,300 bytes
+  Strings: 0
+
+
+======================================================================
+BOOT_TABLE (0x000003FE)
+  Size: 868 bytes
+  Full hex dump:
+    0000: 10 d8 08 02 00 04 00 00 10 d8 08 01 01 00 00 00   ................
+    0010: f8 01 00 6f 10 22 08 01 01 00 00 00 14 22 08 01   ...o."......."..
+    0020: 01 00 00 00 10 22 08 01 00 00 00 00 14 22 08 01   ....."......."..
+    0030: 00 00 00 00 2c e0 03 81 08 00 10 06 4c e0 03 81   ....,.......L...
+    0040: 03 00 00 00 34 e0 03 81 00 de 5e e3 30 e0 03 81   ....4.....^.0...
+    0050: 40 40 00 88 38 e0 03 81 00 00 80 00 40 e0 03 81   @@..8.......@...
+    0060: 13 03 00 00 3c e0 03 81 00 6d 00 c0 3c e0 03 81   ....<....m..<...
+    0070: 00 6d 00 80 50 e0 03 86 00 00 3f 3f 00 00 3f 3f   .m..P.....??..??
+    0080: 00 00 00 00 00 00 00 00 00 00 3f 3f 00 10 00 00   ..........??....
+    0090: 2c f0 03 81 08 00 08 04 4c f0 03 81 03 00 00 00   ,.......L.......
+    00A0: 34 f0 03 81 00 de 5e e3 30 f0 03 81 40 40 00 88   4.....^.0...@@..
+    00B0: 38 f0 03 81 00 00 80 00 40 f0 03 81 13 03 00 00   8.......@.......
+    00C0: 3c f0 03 81 00 6d 00 c0 3c f0 03 81 00 6d 00 80   <....m..<....m..
+    00D0: 50 f0 03 86 00 00 3f 3f 00 00 3f 3f 00 00 00 00   P.....??..??....
+    00E0: 00 00 00 00 00 00 3f 3f 00 10 00 00 b0 20 01 82   ......??..... ..
+    00F0: 19 06 17 20 22 39 00 10 04 10 00 81 11 11 11 81   ... "9..........
+    0100: 04 00 01 81 00 08 d1 60 04 10 01 81 00 08 d1 60   .......`.......`
+    0110: 04 00 01 08 00 00 00 20 04 00 01 08 00 00 00 00   ....... ........
+    0120: 04 10 01 08 00 00 00 20 04 10 01 08 00 00 00 00   ....... ........
+    0130: f8 01 00 6f 04 00 01 08 00 00 00 40 04 10 01 08   ...o.......@....
+    0140: 00 00 00 40 f8 01 00 6f 04 00 01 08 00 00 00 60   ...@...o.......`
+    0150: 04 10 01 08 00 00 00 60 04 00 01 01 38 00 00 00   .......`....8...
+    0160: 00 22 08 50 00 00 0c 50 00 04 04 50 40 d1 01 50   .".P...P...P@..P
+    0170: 04 00 01 01 58 00 00 00 00 40 00 50 04 10 01 01   ....X....@.P....
+    0180: 38 00 00 00 00 22 08 58 00 00 0c 58 00 04 04 58   8....".X...X...X
+    0190: 40 d1 01 58 04 10 01 01 58 00 00 00 00 40 00 58   @..X....X....@.X
+    01A0: 04 00 01 01 18 00 00 00 04 10 01 01 18 00 00 00   ................
+    01B0: a0 26 00 50 a0 26 00 50 a0 26 00 58 a0 26 00 58   .&.P.&.P.&.X.&.X
+    01C0: 04 00 01 01 28 00 00 00 04 10 01 01 28 00 00 00   ....(.......(...
+    01D0: a0 26 00 50 a0 26 00 58 04 00 01 01 48 00 00 00   .&.P.&.X....H...
+    01E0: 04 10 01 01 48 00 00 00 a0 26 00 50 a0 26 00 58   ....H....&.P.&.X
+    01F0: 04 00 01 01 00 00 00 00 04 10 01 01 00 00 00 00   ................
+    0200: 04 10 00 81 02 02 11 90 04 00 01 81 00 08 41 60   ..............A`
+    0210: 10 00 01 83 24 44 42 74 cd 48 00 00 04 00 54 70   ....$DBt.H....Tp
+    0220: 04 10 01 81 00 08 41 60 10 10 01 83 24 44 42 74   ......A`....$DBt
+    0230: cd 48 00 00 04 00 54 70 08 10 00 85 ff ff 00 f0   .H....Tp........
+    0240: 00 00 00 00 64 64 64 64 64 64 64 64 ff 00 00 00   ....dddddddd....
+    0250: 40 10 00 86 00 80 ff ff c0 0f 88 88 ff ff ff ff   @...............
+    0260: 00 80 ff ff c0 0f 88 88 ff ff ff ff 58 10 00 86   ............X...
+    0270: 00 80 ff ff c0 0f 88 88 ff ff ff ff 00 80 ff ff   ................
+    0280: c0 0f 88 88 ff ff ff ff 70 10 00 86 00 80 ff ff   ........p.......
+    0290: c0 0f 88 88 ff ff ff ff 00 80 ff ff c0 0f 88 88   ................
+    02A0: ff ff ff ff 88 10 00 86 00 80 ff ff c0 0f 88 88   ................
+    02B0: ff ff ff ff 00 80 ff ff c0 0f 88 88 ff ff ff ff   ................
+    02C0: a0 10 00 83 ff ff 00 00 ff ff ff ff ff ff ff ff   ................
+    02D0: 04 20 01 81 24 44 42 0f 0c 20 01 86 ff ff ff ff   . ..$DB.. ......
+    02E0: 55 40 ff ff ff ff ff ff ff ff ff ff ff ff ff ff   U@..............
+    02F0: ff ff ff ff 24 20 01 84 ff ff ff ff ff ff ff ff   ....$ ..........
+    0300: ff ff ff ff 00 00 00 00 3c 20 01 81 d7 00 00 44   ........< .....D
+    0310: 04 30 01 81 24 44 42 0f 0c 30 01 86 ff ff ff ff   .0..$DB..0......
+    0320: 55 40 ff ff ff ff ff ff ff ff ff ff ff ff ff ff   U@..............
+    0330: ff ff ff ff 24 30 01 84 ff ff ff ff ff ff ff ff   ....$0..........
+    0340: ff ff ff ff 00 00 00 00 3c 30 01 81 d7 00 00 44   ........<0.....D
+    0350: 00 00 00 81 01 00 00 00 ad de ad de ad de ad de   ................
+    0360: ad de ad de                                       ....
