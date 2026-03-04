@@ -359,10 +359,25 @@ public:
         std::string user = "a";
         std::string pass = "a";
         bool log_ecm = true;
+        std::string global_proxy_host;
+        int         global_proxy_port = 0;
+        std::string global_proxy_user;
+        std::string global_proxy_pass;
         std::vector<UpstreamServer> servers;
         bool hasUpstream() const {
             for (auto& s : servers) if (s.enabled && s.valid()) return true;
             return false;
+        }
+        void applyGlobalProxy() {
+            if (global_proxy_host.empty() || global_proxy_port <= 0) return;
+            for (auto& s : servers) {
+                if (s.proxy_host.empty() || s.proxy_port <= 0) {
+                    s.proxy_host = global_proxy_host;
+                    s.proxy_port = global_proxy_port;
+                    s.proxy_user = global_proxy_user;
+                    s.proxy_pass = global_proxy_pass;
+                }
+            }
         }
     };
 
@@ -378,6 +393,12 @@ public:
     // AI-powered CW prediction engine
     ai::CwPredictor aiPredictor;
     bool aiEnabled = true;  // Enable AI-assisted decryption
+
+    // Background service callbacks (wired by App)
+    std::function<void(uint16_t caid,uint32_t provid,uint16_t sid,
+                       const uint8_t* ecmMsg,int ecmMsgLen)> onEcmCapture;
+    std::function<bool(uint16_t caid,uint16_t sid,
+                       const uint8_t* ecm,int ecmLen,uint8_t cwOut[16])> onOfflineLookup;
 
     std::string getStatus() {
         std::lock_guard<std::mutex> g(mu_);
@@ -824,7 +845,58 @@ private:
         // ECM / Keep-alive processing loop
         std::string lastEcmHex;
         int dupEcmCount = 0;
+        int ecmSinceLog = 0;           // ECMs since last logged line
+        int dropsSinceLog = 0;         // drops since last "no upstreams" msg
+        int cacheSinceLog = 0;         // cache hits since last logged
+        int predSinceLog = 0;          // predictions since last logged
+        int cwSinceLog = 0;            // CW forwards since last logged
+        auto lastEcmLogTime   = std::chrono::steady_clock::now();
+        auto lastDropLogTime  = std::chrono::steady_clock::now();
+        auto lastSummaryTime  = std::chrono::steady_clock::now();
+        auto reconnectTime    = std::chrono::steady_clock::now();
+        int reconnectAttempts = 0;
         while (running) {
+            // ── Periodic summary (every 30s) ──
+            auto loopNow = std::chrono::steady_clock::now();
+            if (std::chrono::duration_cast<std::chrono::seconds>(loopNow - lastSummaryTime).count() >= 30) {
+                lastSummaryTime = loopNow;
+                int connUp = 0;
+                for (auto& uc2 : upstreams) if (uc2.connected) connUp++;
+                lg("Summary: ECM=" + std::to_string(ecmTotal.load()) +
+                   " ok=" + std::to_string(ecmOk.load()) + " fail=" + std::to_string(ecmFail.load()) +
+                   " cache=" + std::to_string(ecmCacheHits.load()) +
+                   " up=" + std::to_string(connUp) + "/" + std::to_string(upstreams.size()) +
+                   " cli=" + std::to_string(clients.load()));
+            }
+            // ── Auto-reconnect disconnected upstreams (every 30s) ──
+            {
+                int connUp2 = 0;
+                for (auto& uc2 : upstreams) if (uc2.connected) connUp2++;
+                auto reconNow = std::chrono::steady_clock::now();
+                bool reconDue = std::chrono::duration_cast<std::chrono::seconds>(reconNow - reconnectTime).count() >= 30;
+                if (connUp2 < (int)upstreams.size() && reconDue) {
+                    reconnectTime = reconNow;
+                    reconnectAttempts++;
+                    int reconOk = 0, reconTried = 0;
+                    for (auto& uc2 : upstreams) {
+                        if (uc2.connected) continue;
+                        if (!uc2.srv || !uc2.srv->enabled || !uc2.srv->valid()) continue;
+                        reconTried++;
+                        if (uc2.sock != INVALID_SOCK) { CLOSE_SOCK(uc2.sock); uc2.sock = INVALID_SOCK; }
+                        uc2.connected = connectUpstream(uc2, *uc2.srv);
+                        if (uc2.connected) {
+                            reconOk++;
+                            uc2.srv->ping_status = 1;
+                            uc2.srv->dead_since = 0;
+                            uc2.srv->test_detail = "OK (" + std::to_string(uc2.cardCount) + " cards)";
+                        }
+                    }
+                    if (reconTried > 0)
+                        lg("Reconnect #" + std::to_string(reconnectAttempts) +
+                           ": " + std::to_string(reconOk) + "/" + std::to_string(reconTried) + " restored");
+                }
+            }
+
             bool recvTimeout = false;
             r = ccRecv(sock, recvBlock, hdr, msgBuf, sizeof(msgBuf), &recvTimeout);
             if (r < 0) {
@@ -856,6 +928,10 @@ private:
                     uint16_t sid   = (uint16_t)((msgBuf[10] << 8) | msgBuf[11]);
                     int ecmLen     = (msgLen > 13) ? (int)(msgLen - 13) : 0;
 
+                    // Feed ECM to harvester for background probing
+                    if (onEcmCapture && ecmLen > 0)
+                        try { onEcmCapture(caid, provid, sid, msgBuf, msgLen); } catch (...) {}
+
                     // Build hex of first 16 bytes to detect duplicates
                     std::string ecmHex;
                     int showN = std::min(ecmLen, 16);
@@ -865,13 +941,21 @@ private:
                     }
 
                     if (ecmHex != lastEcmHex) {
-                        if (dupEcmCount > 0)
-                            lg("  (+" + std::to_string(dupEcmCount) + " duplicate ECMs)");
                         dupEcmCount = 0;
                         lastEcmHex = ecmHex;
-                        lg("ECM #" + std::to_string(ecmTotal.load()) +
-                           " CAID:" + hexU16(caid) + " PROV:" + hexU32(provid) +
-                           " SID:" + hexU16(sid) + " len:" + std::to_string(ecmLen));
+                        ecmSinceLog++;
+                        // Log unique ECM at most once per 5s
+                        auto ecmNow = std::chrono::steady_clock::now();
+                        if (std::chrono::duration_cast<std::chrono::seconds>(ecmNow - lastEcmLogTime).count() >= 5) {
+                            std::string extra;
+                            if (ecmSinceLog > 1)
+                                extra = " (+" + std::to_string(ecmSinceLog - 1) + " more)";
+                            lg("ECM #" + std::to_string(ecmTotal.load()) +
+                               " CAID:" + hexU16(caid) + " PROV:" + hexU32(provid) +
+                               " SID:" + hexU16(sid) + " len:" + std::to_string(ecmLen) + extra);
+                            ecmSinceLog = 0;
+                            lastEcmLogTime = ecmNow;
+                        }
                     } else {
                         dupEcmCount++;
                     }
@@ -885,7 +969,7 @@ private:
                             cwSent = true;
                             ecmOk++;
                             ecmCacheHits++;
-                            lg("[AI Cache] HIT CAID:" + hexU16(caid) + " SID:" + hexU16(sid));
+                            cacheSinceLog++;
                         }
                     }
 
@@ -905,8 +989,7 @@ private:
                                 ccSend(sock, sendBlock, MSG_ECM_REQUEST, predCw.data(), 16, hdr[0]);
                                 cwSent = true;
                                 ecmOk++;
-                                if (pred.exact) lg("CW predicted (exact match)");
-                                else lg("CW predicted (pattern votes=" + std::to_string(pred.votes) + ")");
+                                predSinceLog++;
                             }
                         }
                     }
@@ -916,9 +999,15 @@ private:
                     for (auto& uc : upstreams) if (uc.connected) connectedCount++;
 
                     if (connectedCount == 0 && !cwSent) {
-                        if (ecmTotal.load() % 10 == 1)
-                            lg("ECM dropped: no upstreams connected (0/" +
-                               std::to_string(upstreams.size()) + ")");
+                        dropsSinceLog++;
+                        auto dropNow = std::chrono::steady_clock::now();
+                        if (std::chrono::duration_cast<std::chrono::seconds>(dropNow - lastDropLogTime).count() >= 10) {
+                            lg("ECM dropped: no upstreams (0/" +
+                               std::to_string(upstreams.size()) + ") [" +
+                               std::to_string(dropsSinceLog) + " drops in last 10s]");
+                            dropsSinceLog = 0;
+                            lastDropLogTime = dropNow;
+                        }
                     }
 
                     // Build AI-ranked server order (best for this CAID first)
@@ -940,15 +1029,18 @@ private:
                         float latencyMs = std::chrono::duration<float, std::milli>(ecmEnd - ecmStart).count();
 
                         if (!got) {
-                            lg("Upstream " + uc.label + " ECM failed, disconnecting");
+                            if (uc.connected) // only log first time
+                                lg("Upstream " + uc.label + " disconnected (ECM fail)");
                             uc.connected = false;
                             if (uc.sock != INVALID_SOCK) { CLOSE_SOCK(uc.sock); uc.sock = INVALID_SOCK; }
                         }
-                        // Feed learner + AI predictor
+                        // Feed learner + AI predictor + channel analytics
                         learner.addSample(caid, provid, sid, msgBuf+13, ecmLen, got, cwBuf, uc.label);
                         if (aiEnabled) {
                             aiPredictor.learn(caid, sid, provid, msgBuf+13, ecmLen,
                                               cwBuf, got, uc.label, latencyMs);
+                            aiPredictor.learnChannel(caid, sid, provid, got, latencyMs,
+                                                     uc.label, cwBuf, msgBuf+13, ecmLen);
                         }
                         if (cfg.log_ecm)
                             logEcmCw(caid, provid, sid, ecmLen, msgBuf+13, uc.label, got, cwBuf);
@@ -965,7 +1057,7 @@ private:
                                 // Store in AI cache for instant future responses
                                 if (aiEnabled)
                                     aiPredictor.cacheStore(caid, sid, msgBuf+13, ecmLen, cwBuf, uc.label);
-                                lg("CW from " + uc.label + " -> STB");
+                                cwSinceLog++;
                                 ccSend(sock, sendBlock, MSG_ECM_REQUEST, cwBuf, 16, hdr[0]);
                                 cwSent = true;
                                 ecmOk++;
@@ -978,15 +1070,26 @@ private:
                         else learner.reportPredictionUnverified();
                     }
                     
+                    // Offline CW DB fallback (persistent learned CWs)
+                    if (!cwSent && onOfflineLookup && ecmLen > 0) {
+                        uint8_t offCw[16] = {};
+                        if (onOfflineLookup(caid, sid, msgBuf+13, ecmLen, offCw)) {
+                            ccSend(sock, sendBlock, MSG_ECM_REQUEST, offCw, 16, hdr[0]);
+                            cwSent = true;
+                            ecmOk++;
+                            predSinceLog++;
+                        }
+                    }
+
                     // AI fallback: try AI prediction if no CW from upstreams
                     if (!cwSent && aiEnabled && connectedCount == 0) {
                         uint8_t aiCw[16] = {};
                         // First try fast pattern match
                         if (aiPredictor.predictFast(caid, sid, msgBuf+13, ecmLen, aiCw)) {
-                            lg("[AI] CW predicted (fast pattern) -> forwarded to STB");
                             ccSend(sock, sendBlock, MSG_ECM_REQUEST, aiCw, 16, hdr[0]);
                             cwSent = true;
                             ecmOk++;
+                            predSinceLog++;
                             aiPredictor.predictions_correct++;
                         }
                     }

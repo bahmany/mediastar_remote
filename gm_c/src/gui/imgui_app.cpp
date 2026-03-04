@@ -24,6 +24,9 @@
 #include <vector>
 #include <ctime>
 #include <cstdio>
+#include <cmath>
+#include <cstring>
+#include <zlib.h>
 
 #include "imgui.h"
 #include "imgui_impl_dx11.h"
@@ -33,6 +36,7 @@
 #include "stb/crash_log.h"
 #include "stb/channel_cache.h"
 #include "cccam/cccam_server.h"
+#include "cccam/ecm_services.h"
 #include "cccam/cccam_config.h"
 #include "stb/custom_lists.h"
 #include <algorithm>
@@ -80,6 +84,204 @@ static LONG WINAPI CrashHandler(EXCEPTION_POINTERS* ep) {
     CrashLog("--- end crash ---");
 
     return EXCEPTION_EXECUTE_HANDLER;
+}
+
+static double shannonEntropy_(const uint8_t* data, size_t n) {
+    if (!data || n == 0) return 0.0;
+    uint32_t freq[256] = {};
+    for (size_t i = 0; i < n; ++i) freq[data[i]]++;
+    double invN = 1.0 / (double)n;
+    double ent = 0.0;
+    for (int i = 0; i < 256; ++i) {
+        if (!freq[i]) continue;
+        double p = (double)freq[i] * invN;
+        ent -= p * (std::log(p) / std::log(2.0));
+    }
+    return ent;
+}
+
+static inline uint16_t rd16le_(const uint8_t* p) {
+    return (uint16_t)(p[0] | (p[1] << 8));
+}
+static inline uint32_t rd32le_(const uint8_t* p) {
+    return (uint32_t)(p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24));
+}
+static inline uint32_t rd32be_(const uint8_t* p) {
+    return (uint32_t)((p[0] << 24) | (p[1] << 16) | (p[2] << 8) | (p[3]));
+}
+
+struct FwContainerReport_ {
+    bool ok = false;
+    std::string err;
+
+    std::string path;
+    size_t size = 0;
+
+    uint32_t magic_be = 0;
+    bool has_marker_aa41ada3 = false;
+    bool has_marker_a3ad41aa = false;
+
+    double entropy_global = 0;
+    double entropy_min_64k = 0;
+    double entropy_max_64k = 0;
+
+    int zlib_header_candidates = 0;
+    int zlib_inflate_ok = 0;
+
+    int jffs2_magic_hits = 0;
+    int jffs2_valid_hdr_crc = 0;
+
+    int der_seq_hits = 0;
+    int der_plausible = 0;
+};
+
+static bool isZlibHeader_(uint8_t cmf, uint8_t flg) {
+    if ((cmf & 0x0F) != 8) return false;
+    if ((cmf >> 4) > 7) return false;
+    uint16_t v = (uint16_t)((cmf << 8) | flg);
+    return (v % 31) == 0;
+}
+
+static bool tryInflateProbe_(const uint8_t* in, size_t inLen) {
+    if (!in || inLen < 8) return false;
+    z_stream zs{};
+    zs.next_in = (Bytef*)in;
+    zs.avail_in = (uInt)std::min<size_t>(inLen, 256 * 1024);
+
+    uint8_t outBuf[32 * 1024] = {};
+    zs.next_out = outBuf;
+    zs.avail_out = (uInt)sizeof(outBuf);
+
+    int rc = inflateInit(&zs);
+    if (rc != Z_OK) return false;
+    rc = inflate(&zs, Z_SYNC_FLUSH);
+    inflateEnd(&zs);
+    if (rc == Z_STREAM_END) return true;
+    if (rc == Z_OK && zs.total_out > 0) return true;
+    return false;
+}
+
+static bool jffs2ValidHdrCrc_(const uint8_t* p, size_t remain) {
+    if (!p || remain < 12) return false;
+    if (p[0] != 0x85 || p[1] != 0x19) return false;
+    uint16_t magic = rd16le_(p);
+    if (magic != 0x1985) return false;
+    uint32_t hdr_crc = rd32le_(p + 8);
+    uLong crc = crc32(0L, Z_NULL, 0);
+    crc = crc32(crc, (const Bytef*)p, 8);
+    return (uint32_t)crc == hdr_crc;
+}
+
+static int derPlausibleCount_(const uint8_t* data, size_t n, int maxChecks = 1000) {
+    int plausible = 0;
+    int checked = 0;
+    for (size_t i = 0; i + 4 < n && checked < maxChecks; ++i) {
+        if (data[i] != 0x30) continue;
+        uint8_t lb = data[i + 1];
+        size_t len = 0;
+        size_t lsz = 0;
+        if (lb < 0x80) {
+            len = lb;
+            lsz = 1;
+        } else {
+            size_t nn = (size_t)(lb & 0x7F);
+            if (nn == 0 || nn > 4 || i + 2 + nn >= n) continue;
+            len = 0;
+            for (size_t k = 0; k < nn; ++k) len = (len << 8) | data[i + 2 + k];
+            lsz = 1 + nn;
+        }
+        size_t hdr = 1 + lsz;
+        if (len < 16) continue;
+        if (i + hdr + len <= n) plausible++;
+        checked++;
+    }
+    return plausible;
+}
+
+static FwContainerReport_ analyzeFwContainer_(const char* path) {
+    FwContainerReport_ r;
+    if (!path || !path[0]) {
+        r.err = "empty path";
+        return r;
+    }
+    r.path = path;
+
+    std::ifstream f(path, std::ios::binary);
+    if (!f.good()) {
+        r.err = "open failed";
+        return r;
+    }
+    f.seekg(0, std::ios::end);
+    std::streamoff sz = f.tellg();
+    if (sz <= 0) {
+        r.err = "empty file";
+        return r;
+    }
+    f.seekg(0, std::ios::beg);
+    r.size = (size_t)sz;
+    std::vector<uint8_t> buf(r.size);
+    f.read((char*)buf.data(), (std::streamsize)buf.size());
+    if (!f.good()) {
+        r.err = "read failed";
+        return r;
+    }
+
+    if (buf.size() >= 12) {
+        r.magic_be = rd32be_(buf.data());
+        r.has_marker_aa41ada3 = (memcmp(buf.data() + 4, "\xAA\x41\xAD\xA3", 4) == 0);
+        r.has_marker_a3ad41aa = (memcmp(buf.data() + 8, "\xA3\xAD\x41\xAA", 4) == 0);
+    }
+
+    r.entropy_global = shannonEntropy_(buf.data(), buf.size());
+    r.entropy_min_64k = 1e9;
+    r.entropy_max_64k = 0;
+    for (size_t off = 0; off < buf.size(); off += 64 * 1024) {
+        size_t n = std::min<size_t>(64 * 1024, buf.size() - off);
+        double e = shannonEntropy_(buf.data() + off, n);
+        if (e < r.entropy_min_64k) r.entropy_min_64k = e;
+        if (e > r.entropy_max_64k) r.entropy_max_64k = e;
+    }
+
+    for (size_t i = 0; i + 2 < buf.size(); ++i) {
+        if (buf[i] == 0x78 && (buf[i + 1] == 0x01 || buf[i + 1] == 0x5E || buf[i + 1] == 0x9C || buf[i + 1] == 0xDA)) {
+            if (!isZlibHeader_(buf[i], buf[i + 1])) continue;
+            r.zlib_header_candidates++;
+            if (r.zlib_inflate_ok < 64) {
+                if (tryInflateProbe_(buf.data() + i, buf.size() - i))
+                    r.zlib_inflate_ok++;
+            }
+        }
+    }
+
+    for (size_t i = 0; i + 2 < buf.size(); ++i) {
+        if (buf[i] == 0x85 && buf[i + 1] == 0x19) {
+            r.jffs2_magic_hits++;
+            if (jffs2ValidHdrCrc_(buf.data() + i, buf.size() - i))
+                r.jffs2_valid_hdr_crc++;
+        }
+    }
+
+    for (size_t i = 0; i + 2 < buf.size(); ++i) {
+        if (buf[i] == 0x30 && (buf[i + 1] == 0x81 || buf[i + 1] == 0x82 || buf[i + 1] == 0x83 || buf[i + 1] == 0x84))
+            r.der_seq_hits++;
+    }
+    r.der_plausible = derPlausibleCount_(buf.data(), buf.size());
+
+    r.ok = true;
+    return r;
+}
+
+static std::string exeDir_() {
+#ifdef _WIN32
+    char buf[MAX_PATH] = {};
+    GetModuleFileNameA(nullptr, buf, MAX_PATH);
+    std::string p(buf);
+    auto pos = p.find_last_of("\\/");
+    if (pos != std::string::npos) p = p.substr(0, pos + 1);
+    return p;
+#else
+    return "";
+#endif
 }
 
 // ── D3D11 boilerplate ───────────────────────────────────────────────────────
@@ -251,6 +453,9 @@ struct App {
     }
 
     cccam::CccamServer cccam;
+    cccam::EcmHarvester harvester;
+    cccam::OfflineCwDb  offlineCwDb;
+    cccam::AiTrainer    aiTrainer;
     Logger log;
     Logger cccamLog;
 
@@ -268,11 +473,10 @@ struct App {
     bool showLog = false, showCccamLog = false, showCccam = false, showStbInfo = false;
     bool showDetail = false, showSatPanel = false, showRemote = false, showKeyboard = false;
     int  rightTab = 0;     // 0=Remote, 1=Log, 2=My Lists
+    int  mainTab  = 0;     // 0=Channels, 1=CCcam+AI, 2=STB Info
     stb::CustomLists customLists;
     bool clDirty = false;  // auto-save trigger
-    
-    // AI Decryption Engine panel
-    bool showAI = false;
+    int  ccaiTab = 0;      // CCcam+AI combined window active tab
     int  detailIdx = -1;           // index into chSnap for detail popup
     int  sortCol = 0;              // 0=index, 1=name, 2=freq, 3=type
     bool sortAsc = true;
@@ -419,6 +623,9 @@ struct App {
     ~App() {
         CrashLog("App destructor start");
         down = true;
+        try { harvester.stop(); } catch (...) {}
+        try { aiTrainer.stop(); } catch (...) {}
+        try { offlineCwDb.save(); } catch (...) {}
         try { cccam.stop(); } catch (...) {}
         try { client.disconnect(); } catch (...) {}
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
@@ -428,40 +635,106 @@ struct App {
 
 // ── Style ───────────────────────────────────────────────────────────────────
 static void ApplyStyle(float dpi) {
-    ImGui::StyleColorsDark();
     ImGuiStyle& s = ImGui::GetStyle();
-    s.WindowPadding = {8,6}; s.FramePadding = {6,3}; s.CellPadding = {4,2};
-    s.ItemSpacing = {6,3}; s.ItemInnerSpacing = {4,3}; s.ScrollbarSize = 9;
-    s.GrabMinSize = 6; s.WindowBorderSize = 1; s.ChildBorderSize = 0;
-    s.FrameBorderSize = 0; s.WindowRounding = 6; s.ChildRounding = 4;
-    s.FrameRounding = 4; s.PopupRounding = 5; s.ScrollbarRounding = 3;
-    s.GrabRounding = 3; s.TabRounding = 4;
+    // Geometry — tight, modern, minimal
+    s.WindowPadding     = {10, 8};
+    s.FramePadding      = {8, 4};
+    s.CellPadding       = {6, 3};
+    s.ItemSpacing       = {8, 4};
+    s.ItemInnerSpacing  = {6, 4};
+    s.ScrollbarSize     = 10;
+    s.GrabMinSize       = 8;
+    s.WindowBorderSize  = 1;
+    s.ChildBorderSize   = 1;
+    s.FrameBorderSize   = 0;
+    s.TabBorderSize     = 0;
+    s.WindowRounding    = 6;
+    s.ChildRounding     = 4;
+    s.FrameRounding     = 5;
+    s.PopupRounding     = 6;
+    s.ScrollbarRounding = 6;
+    s.GrabRounding      = 4;
+    s.TabRounding       = 5;
+    s.IndentSpacing     = 16;
+
     auto* c = s.Colors;
-    c[ImGuiCol_WindowBg]             = {0.06f,0.07f,0.11f,0.97f};
-    c[ImGuiCol_ChildBg]              = {0.07f,0.08f,0.13f,0.55f};
-    c[ImGuiCol_PopupBg]              = {0.07f,0.08f,0.13f,0.97f};
-    c[ImGuiCol_Border]               = {0.20f,0.24f,0.36f,0.55f};
-    c[ImGuiCol_FrameBg]              = {0.10f,0.12f,0.19f,0.60f};
-    c[ImGuiCol_FrameBgHovered]       = {0.14f,0.18f,0.28f,0.80f};
-    c[ImGuiCol_FrameBgActive]        = {0.18f,0.24f,0.38f,1.00f};
-    c[ImGuiCol_TitleBg]              = {0.07f,0.08f,0.13f,1.00f};
-    c[ImGuiCol_TitleBgActive]        = {0.10f,0.13f,0.21f,1.00f};
-    c[ImGuiCol_Button]               = {0.16f,0.30f,0.55f,0.65f};
-    c[ImGuiCol_ButtonHovered]        = {0.22f,0.40f,0.72f,0.85f};
-    c[ImGuiCol_ButtonActive]         = {0.28f,0.50f,0.90f,1.00f};
-    c[ImGuiCol_Header]               = {0.16f,0.30f,0.55f,0.50f};
-    c[ImGuiCol_HeaderHovered]        = {0.22f,0.40f,0.72f,0.75f};
-    c[ImGuiCol_HeaderActive]         = {0.28f,0.50f,0.90f,0.95f};
-    c[ImGuiCol_Tab]                  = {0.12f,0.20f,0.36f,0.70f};
-    c[ImGuiCol_TabHovered]           = {0.22f,0.40f,0.72f,0.85f};
-    c[ImGuiCol_TabActive]            = {0.26f,0.46f,0.82f,1.00f};
-    c[ImGuiCol_TableHeaderBg]        = {0.10f,0.12f,0.19f,1.00f};
-    c[ImGuiCol_TableBorderStrong]    = {0.20f,0.24f,0.36f,1.00f};
-    c[ImGuiCol_TableBorderLight]     = {0.14f,0.18f,0.26f,1.00f};
-    c[ImGuiCol_TableRowBgAlt]        = {1,1,1,0.025f};
-    c[ImGuiCol_ScrollbarGrab]        = {0.22f,0.28f,0.42f,0.80f};
-    c[ImGuiCol_CheckMark]            = {0.40f,0.72f,1.00f,1.00f};
-    c[ImGuiCol_Separator]            = {0.18f,0.22f,0.32f,0.80f};
+
+    // ── Catppuccin Mocha palette ──────────────────────────────────────
+    // Base layers
+    const float bx = 0.118f, by = 0.118f, bz = 0.180f; // #1e1e2e  base
+    const float mx = 0.094f, my = 0.094f, mz = 0.145f; // #181825  mantle
+    const float s0x= 0.192f, s0y= 0.196f, s0z= 0.267f; // #313244  surface0
+    const float s1x= 0.271f, s1y= 0.278f, s1z= 0.353f; // #45475a  surface1
+    const float s2x= 0.345f, s2y= 0.353f, s2z= 0.431f; // #585b70  surface2
+    const float o0x= 0.424f, o0y= 0.439f, o0z= 0.525f; // #6c7086  overlay0
+    // Accents
+    const float blx= 0.537f, bly= 0.706f, blz= 0.980f; // #89b4fa  blue
+
+    // ── Window backgrounds ──
+    c[ImGuiCol_WindowBg]             = {bx, by, bz, 0.98f};
+    c[ImGuiCol_ChildBg]              = {mx, my, mz, 0.45f};
+    c[ImGuiCol_PopupBg]              = {mx, my, mz, 0.96f};
+    c[ImGuiCol_Border]               = {s1x, s1y, s1z, 0.45f};
+    c[ImGuiCol_BorderShadow]         = {0, 0, 0, 0};
+
+    // ── Text ──
+    c[ImGuiCol_Text]                 = {0.804f, 0.839f, 0.957f, 1.00f}; // #cdd6f4
+    c[ImGuiCol_TextDisabled]         = {0.549f, 0.573f, 0.675f, 1.00f}; // #8c92ac
+
+    // ── Frames (inputs, combos, sliders) ──
+    c[ImGuiCol_FrameBg]              = {s0x, s0y, s0z, 0.55f};
+    c[ImGuiCol_FrameBgHovered]       = {s1x, s1y, s1z, 0.65f};
+    c[ImGuiCol_FrameBgActive]        = {s2x, s2y, s2z, 0.75f};
+
+    // ── Title bar ──
+    c[ImGuiCol_TitleBg]              = {mx, my, mz, 1.00f};
+    c[ImGuiCol_TitleBgActive]        = {s0x, s0y, s0z, 1.00f};
+    c[ImGuiCol_TitleBgCollapsed]     = {mx, my, mz, 0.60f};
+    c[ImGuiCol_MenuBarBg]            = {mx, my, mz, 1.00f};
+
+    // ── Buttons — blue accent, subtle ──
+    c[ImGuiCol_Button]               = {blx*0.28f, bly*0.28f, blz*0.28f, 0.65f};
+    c[ImGuiCol_ButtonHovered]        = {blx*0.40f, bly*0.40f, blz*0.40f, 0.80f};
+    c[ImGuiCol_ButtonActive]         = {blx*0.55f, bly*0.55f, blz*0.55f, 1.00f};
+
+    // ── Headers (collapsing headers, tree nodes) ──
+    c[ImGuiCol_Header]               = {s0x, s0y, s0z, 0.55f};
+    c[ImGuiCol_HeaderHovered]        = {blx*0.25f, bly*0.25f, blz*0.25f, 0.60f};
+    c[ImGuiCol_HeaderActive]         = {blx*0.35f, bly*0.35f, blz*0.35f, 0.80f};
+
+    // ── Tabs ──
+    c[ImGuiCol_Tab]                  = {s0x, s0y, s0z, 0.75f};
+    c[ImGuiCol_TabHovered]           = {blx*0.35f, bly*0.35f, blz*0.35f, 0.80f};
+    c[ImGuiCol_TabActive]            = {blx*0.25f, bly*0.25f, blz*0.25f, 1.00f};
+    c[ImGuiCol_TabDimmed]            = {mx, my, mz, 0.80f};
+    c[ImGuiCol_TabDimmedSelected]    = {s0x, s0y, s0z, 1.00f};
+
+    // ── Tables ──
+    c[ImGuiCol_TableHeaderBg]        = {s0x, s0y, s0z, 1.00f};
+    c[ImGuiCol_TableBorderStrong]    = {s1x, s1y, s1z, 0.70f};
+    c[ImGuiCol_TableBorderLight]     = {s0x, s0y, s0z, 0.50f};
+    c[ImGuiCol_TableRowBg]           = {0, 0, 0, 0};
+    c[ImGuiCol_TableRowBgAlt]        = {1, 1, 1, 0.018f};
+
+    // ── Scrollbar ──
+    c[ImGuiCol_ScrollbarBg]          = {mx, my, mz, 0.40f};
+    c[ImGuiCol_ScrollbarGrab]        = {s1x, s1y, s1z, 0.65f};
+    c[ImGuiCol_ScrollbarGrabHovered] = {s2x, s2y, s2z, 0.80f};
+    c[ImGuiCol_ScrollbarGrabActive]  = {o0x, o0y, o0z, 1.00f};
+
+    // ── Misc controls ──
+    c[ImGuiCol_CheckMark]            = {blx, bly, blz, 1.00f};
+    c[ImGuiCol_SliderGrab]           = {blx*0.50f, bly*0.50f, blz*0.50f, 1.00f};
+    c[ImGuiCol_SliderGrabActive]     = {blx, bly, blz, 1.00f};
+    c[ImGuiCol_Separator]            = {s1x, s1y, s1z, 0.55f};
+    c[ImGuiCol_SeparatorHovered]     = {blx*0.40f, bly*0.40f, blz*0.40f, 0.70f};
+    c[ImGuiCol_SeparatorActive]      = {blx, bly, blz, 1.00f};
+    c[ImGuiCol_ResizeGrip]           = {s1x, s1y, s1z, 0.25f};
+    c[ImGuiCol_ResizeGripHovered]    = {blx*0.40f, bly*0.40f, blz*0.40f, 0.55f};
+    c[ImGuiCol_ResizeGripActive]     = {blx*0.55f, bly*0.55f, blz*0.55f, 0.90f};
+    c[ImGuiCol_TextSelectedBg]       = {blx*0.25f, bly*0.25f, blz*0.25f, 0.50f};
+    c[ImGuiCol_NavHighlight]         = {blx, bly, blz, 1.00f};
+
     s.ScaleAllSizes(dpi);
 }
 
@@ -569,7 +842,12 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
             app->cccam.cfg.user    = ccfg.user;
             app->cccam.cfg.pass    = ccfg.pass;
             app->cccam.cfg.log_ecm = ccfg.log_ecm;
+            app->cccam.cfg.global_proxy_host = ccfg.global_proxy_host;
+            app->cccam.cfg.global_proxy_port = ccfg.global_proxy_port;
+            app->cccam.cfg.global_proxy_user = ccfg.global_proxy_user;
+            app->cccam.cfg.global_proxy_pass = ccfg.global_proxy_pass;
             app->cccam.cfg.servers = ccfg.servers;
+            app->cccam.cfg.applyGlobalProxy();
             CrashLog(("[CCcam] Config loaded, " + std::to_string(ccfg.servers.size()) + " servers").c_str());
         }
         
@@ -591,10 +869,62 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
 
     // ── Auto-start CCcam server ──
     try {
+        // Make sure global proxy is applied before starting runtime connections
+        app->cccam.cfg.applyGlobalProxy();
         app->cccam.start([&app](const std::string& msg) {
             try { if (app && !app->down) app->cccamLog.add(msg); } catch (...) {}
         });
     } catch (...) { CrashLog("CCcam auto-start failed"); }
+
+    // ── Wire & start background services ──
+    try {
+        // Load offline CW database
+        app->offlineCwDb.load();
+
+        // Wire ECM capture: feed harvester targets from live STB traffic
+        app->cccam.onEcmCapture = [&app](uint16_t caid, uint32_t provid, uint16_t sid,
+                                          const uint8_t* msg, int len) {
+            try { app->harvester.addTarget(caid, provid, sid, msg, len); } catch (...) {}
+        };
+
+        // Wire offline CW lookup: fallback when upstreams are down
+        app->cccam.onOfflineLookup = [&app](uint16_t caid, uint16_t sid,
+                                             const uint8_t* ecm, int ecmLen, uint8_t* cwOut) -> bool {
+            try { return app->offlineCwDb.lookup(caid, sid, ecm, ecmLen, cwOut); } catch (...) { return false; }
+        };
+
+        // Harvester: when CW obtained, feed learner + predictor + offline DB
+        app->harvester.onLog = [&app](const std::string& msg) {
+            try { if (app && !app->down) app->cccamLog.add(msg); } catch (...) {}
+        };
+        app->harvester.onResult = [&app](uint16_t caid, uint32_t provid, uint16_t sid,
+                                          const uint8_t* ecm, int ecmLen, bool ok,
+                                          const uint8_t* cw, const std::string& srv, float lat) {
+            try {
+                if (ok && ecm && ecmLen > 0) {
+                    app->cccam.learner.addSample(caid, provid, sid, ecm, ecmLen, ok, cw, srv);
+                    app->cccam.aiPredictor.learn(caid, sid, provid, ecm, ecmLen, cw, ok, srv, lat);
+                    app->offlineCwDb.store(caid, sid, provid, ecm, ecmLen, cw, srv);
+                }
+            } catch (...) {}
+        };
+        app->harvester.start(&app->cccam.cfg.servers);
+
+        // AI Trainer: periodic model analysis & saving
+        app->aiTrainer.onLog = [&app](const std::string& msg) {
+            try { if (app && !app->down) app->cccamLog.add(msg); } catch (...) {}
+        };
+        app->aiTrainer.predictor = &app->cccam.aiPredictor;
+        app->aiTrainer.learner = &app->cccam.learner;
+        app->aiTrainer.offlineDb = &app->offlineCwDb;
+        app->aiTrainer.start();
+
+        CrashLog("Background services started (harvester + trainer + offline DB)");
+    } catch (...) { CrashLog("Background services init failed"); }
+
+    // Start on CCcam + AI tab
+    app->mainTab = 1;
+    app->ccaiTab = 0;
 
     // ── Auto-connect to STB ──
     {
@@ -653,7 +983,7 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
         float LW = VW * 0.66f - P;
         float RW = VW - LW - P * 3;
         float RX = OX + LW + P * 2;
-        float CONN_H = 100.0f * dpi;
+        float CONN_H = 130.0f * dpi;
         float CH_H = VH - CONN_H - P * 3;
         float RPH = VH - P * 2;  // right panel full height
 
@@ -712,15 +1042,9 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                 ImGui::TextDisabled("TV:%d Radio:%d", ss.chTotal, ss.radioTotal);
             }
             ImGui::SameLine(0,10);
-            if (ImGui::SmallButton("STB Info")) app->showStbInfo = true;
-            ImGui::SameLine(0,4);
             if (ImGui::SmallButton("Remote")) app->rightTab = 0;
             ImGui::SameLine(0,4);
             if (ImGui::SmallButton("My Lists")) app->rightTab = 2;
-            ImGui::SameLine(0,4);
-            if (ImGui::SmallButton("CCcam")) app->showCccam = true;
-            ImGui::SameLine(0,4);
-            if (ImGui::SmallButton("AI")) app->showAI = true;
             ImGui::SameLine(0,4);
             if (ImGui::SmallButton("Logs")) { app->rightTab = 1; }
             ImGui::Separator();
@@ -841,16 +1165,33 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                     ImGui::TextDisabled("%s", ss.discStatus.c_str());
                 }
             }
+            // ── Main workspace tab bar ──
+            ImGui::Separator();
+            static int prevMainTab = -1;
+            bool mtChanged = (prevMainTab >= 0 && prevMainTab != app->mainTab);
+            if (ImGui::BeginTabBar("##mainWorkspaceTabs")) {
+                auto mtf = [&](int idx) -> ImGuiTabItemFlags {
+                    return (mtChanged && app->mainTab == idx) ? ImGuiTabItemFlags_SetSelected : 0;
+                };
+                if (ImGui::BeginTabItem("Channels",  nullptr, mtf(0))) { app->mainTab = 0; ImGui::EndTabItem(); }
+                if (ImGui::BeginTabItem("CCcam + AI", nullptr, mtf(1))) { app->mainTab = 1; ImGui::EndTabItem(); }
+                if (ImGui::BeginTabItem("STB Info",   nullptr, mtf(2))) { app->mainTab = 2; ImGui::EndTabItem(); }
+                ImGui::EndTabBar();
+            }
+            prevMainTab = app->mainTab;
         }
         ImGui::End();
 
         // ════════════════════════════════════════════════════════════════
-        // CHANNELS
+        // MAIN CONTENT AREA (left panel, below connection)
         // ════════════════════════════════════════════════════════════════
+
+        // ── TAB 0: CHANNELS ──────────────────────────────────────────
+        if (app->mainTab == 0) {
         ImGui::SetNextWindowPos({OX+P, OY+P+CONN_H+P});
         ImGui::SetNextWindowSize({LW, CH_H});
-        ImGui::Begin("Channels", nullptr,
-            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize);
+        ImGui::Begin("##channels", nullptr,
+            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize);
         {
             float tbW = 42*dpi, tbH = 22*dpi;
 
@@ -1138,6 +1479,7 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
             ImGui::EndChild();
         }
         ImGui::End();
+        } // end mainTab == 0 (Channels)
 
         // ════════════════════════════════════════════════════════════════
         // CHANNEL DETAIL POPUP
@@ -1368,9 +1710,9 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
             ImGui::SameLine(0,8);
             if (ImGui::SmallButton("KB")) app->showKeyboard = true;
             ImGui::SameLine(0,4);
-            if (ImGui::SmallButton("CC")) app->showCccam = true;
+            if (ImGui::SmallButton("CC")) app->mainTab = 1;
             ImGui::SameLine(0,4);
-            if (ImGui::SmallButton("?")) app->showStbInfo = true;
+            if (ImGui::SmallButton("?")) app->mainTab = 2;
 
             ImGui::Separator();
 
@@ -1550,7 +1892,7 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                     ImGui::SameLine(0,4);
                     if (ImGui::Button("Get Info",{B3,BHS})) {
                         try { app->client.requestStbInfo(); } catch (...) {}
-                        app->showStbInfo = true;
+                        app->mainTab = 2;
                     }
                     ImGui::SameLine(0,4);
                     if (ImGui::Button("KeepAlive",{B3,BHS})) {
@@ -1747,11 +2089,15 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
         }
 
         // ════════════════════════════════════════════════════════════════
-        // CCcam SERVER
+        // ── TAB 1: CCcam + AI ENGINE (docked in main content area) ──
         // ════════════════════════════════════════════════════════════════
-        if (app->showCccam) {
-            ImGui::SetNextWindowSize({680*dpi, 620*dpi}, ImGuiCond_FirstUseEver);
-            if (ImGui::Begin("CCcam Server###cccam", &app->showCccam)) {
+        if (app->mainTab == 1) {
+            ImGui::SetNextWindowPos({OX+P, OY+P+CONN_H+P});
+            ImGui::SetNextWindowSize({LW, CH_H});
+            if (ImGui::Begin("##ccai_docked", nullptr,
+                ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) {
+                ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {6*dpi, 3*dpi});
+                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6*dpi, 3*dpi});
                 // ── Ping state (static across frames) ──
                 static std::atomic<bool> pinging{false};
                 static std::atomic<int>  pingDone{0}, pingTotal{0};
@@ -1762,7 +2108,7 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                 bool srv = app->cccam.running.load();
                 auto& srvList = app->cccam.cfg.servers;
 
-                // ── Status bar ──
+                // ── Top Status Dashboard ──
                 {
                     ImVec4 sc2 = srv ? ImVec4(0.18f,0.82f,0.45f,1)
                                      : ImVec4(0.90f,0.35f,0.35f,1);
@@ -1781,54 +2127,320 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                         app->cccam.ecmOk.load(), app->cccam.ecmFail.load());
                 }
 
-                // ── Start/Stop buttons ──
+                // ── Save config helper lambda ──
+                auto saveConfig = [&]() {
+                    cccam::CccamConfig ccfg;
+                    ccfg.port = app->cccam.cfg.port; ccfg.user = app->cccam.cfg.user;
+                    ccfg.pass = app->cccam.cfg.pass; ccfg.log_ecm = app->cccam.cfg.log_ecm;
+                    ccfg.global_proxy_host = app->cccam.cfg.global_proxy_host;
+                    ccfg.global_proxy_port = app->cccam.cfg.global_proxy_port;
+                    ccfg.global_proxy_user = app->cccam.cfg.global_proxy_user;
+                    ccfg.global_proxy_pass = app->cccam.cfg.global_proxy_pass;
+                    ccfg.servers = srvList; ccfg.save();
+                };
+
+                // ── Start/Stop + Save row ──
                 if (!srv) {
                     ImGui::PushStyleColor(ImGuiCol_Button, {0.12f,0.55f,0.18f,0.80f});
-                    if (ImGui::Button("Start Server", {140*dpi,28*dpi})) {
-                        cccam::CccamConfig ccfg;
-                        ccfg.port = app->cccam.cfg.port; ccfg.user = app->cccam.cfg.user;
-                        ccfg.pass = app->cccam.cfg.pass; ccfg.log_ecm = app->cccam.cfg.log_ecm;
-                        ccfg.servers = srvList; ccfg.save();
-                        app->cccam.start([app](const std::string& m) { app->log.add(m); });
+                    if (ImGui::Button("Start Server", {120*dpi,26*dpi})) {
+                        app->cccam.cfg.applyGlobalProxy();
+                        saveConfig();
+                        app->cccam.start([app](const std::string& m) {
+                            try { if (app && !app->down) app->cccamLog.add(m); } catch (...) {}
+                        });
                     }
                     ImGui::PopStyleColor();
                 } else {
                     ImGui::PushStyleColor(ImGuiCol_Button, {0.55f,0.18f,0.18f,0.80f});
-                    if (ImGui::Button("Stop Server", {140*dpi,28*dpi}))
+                    if (ImGui::Button("Stop Server", {120*dpi,26*dpi}))
                         app->cccam.stop();
                     ImGui::PopStyleColor();
                 }
-                ImGui::SameLine(0,8);
-                if (ImGui::Button("Save Config", {100*dpi,28*dpi})) {
-                    cccam::CccamConfig ccfg;
-                    ccfg.port = app->cccam.cfg.port; ccfg.user = app->cccam.cfg.user;
-                    ccfg.pass = app->cccam.cfg.pass; ccfg.log_ecm = app->cccam.cfg.log_ecm;
-                    ccfg.servers = srvList; ccfg.save();
+                ImGui::SameLine(0,6);
+                if (ImGui::Button("Save##ccai", {70*dpi,26*dpi})) {
+                    saveConfig();
                     app->log.add("[CCcam] Config saved");
                 }
+                ImGui::SameLine(0,6);
+                if (ImGui::SmallButton("CCcam Log##ccai2")) app->showCccamLog = true;
 
                 ImGui::Separator();
 
-                // ── Tabs: Servers | Import | Learner | Config ──
-                static int ccTab = 0;
+                // ── 6 Tabs: Dashboard | Servers | Import | AI Engine | Learner | Config ──
+                int& ccTab = app->ccaiTab;
                 {
-                    const char* tabs[] = {"Servers","Import","Learner","Config"};
-                    for (int i = 0; i < 4; i++) {
-                        if (i) ImGui::SameLine(0,2);
-                        bool act = (ccTab == i);
-                        if (act) {
-                            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_TabActive]);
-                            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyle().Colors[ImGuiCol_TabActive]);
-                        }
-                        if (ImGui::Button(tabs[i], {0, 22*dpi})) ccTab = i;
-                        if (act) ImGui::PopStyleColor(2);
+                    if (ImGui::BeginTabBar("##ccaiTabs")) {
+                        if (ImGui::BeginTabItem("Dashboard"))  { ccTab = 0; ImGui::EndTabItem(); }
+                        if (ImGui::BeginTabItem("Servers"))    { ccTab = 1; ImGui::EndTabItem(); }
+                        if (ImGui::BeginTabItem("Import"))     { ccTab = 2; ImGui::EndTabItem(); }
+                        if (ImGui::BeginTabItem("AI Engine"))  { ccTab = 3; ImGui::EndTabItem(); }
+                        if (ImGui::BeginTabItem("Learner"))    { ccTab = 4; ImGui::EndTabItem(); }
+                        if (ImGui::BeginTabItem("Config"))     { ccTab = 5; ImGui::EndTabItem(); }
+                        ImGui::EndTabBar();
                     }
                 }
 
                 // ═══════════════════════════════════════════════════════════
-                // TAB 0: SERVERS
+                // TAB 0: DASHBOARD (overview of everything)
                 // ═══════════════════════════════════════════════════════════
                 if (ccTab == 0) {
+                    auto& ai = app->cccam.aiPredictor;
+                    auto aiStats = ai.getStats();
+                    
+                    if (ImGui::CollapsingHeader("Server Status##dash", ImGuiTreeNodeFlags_DefaultOpen)) {
+                        int nOk = 0, nFail = 0, nUnk = 0;
+                        for (auto& s : srvList) {
+                            if (s.ping_status == 1) nOk++;
+                            else if (s.ping_status == -1) nFail++;
+                            else nUnk++;
+                        }
+                        if (ImGui::BeginTable("##dash_srv", 2, ImGuiTableFlags_SizingFixedFit)) {
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Servers");
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::Text("%d total  ", (int)srvList.size());
+                            ImGui::SameLine(0,6);
+                            ImGui::TextColored({0.3f,0.9f,0.4f,1}, "%d ok", nOk);
+                            ImGui::SameLine(0,6);
+                            if (nFail > 0) ImGui::TextColored({0.9f,0.3f,0.3f,1}, "%d dead", nFail);
+                            ImGui::SameLine(0,6);
+                            ImGui::TextDisabled("%d unk", nUnk);
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Clients");
+                            ImGui::TableSetColumnIndex(1); ImGui::Text("%d", app->cccam.clients.load());
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("ECM");
+                            ImGui::TableSetColumnIndex(1); ImGui::Text("%d ok / %d fail", app->cccam.ecmOk.load(), app->cccam.ecmFail.load());
+                            ImGui::EndTable();
+                        }
+                    }
+
+                    if (ImGui::CollapsingHeader("AI Engine##dash", ImGuiTreeNodeFlags_DefaultOpen)) {
+                        bool aiOn = app->cccam.aiEnabled;
+                        if (ImGui::BeginTable("##dash_ai", 2, ImGuiTableFlags_SizingFixedFit)) {
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Status");
+                            ImGui::TableSetColumnIndex(1);
+                            if (aiOn)
+                                ImGui::TextColored({0.3f,0.9f,0.4f,1}, "Active");
+                            else
+                                ImGui::TextColored({0.6f,0.6f,0.6f,1}, "Disabled");
+                            ImGui::SameLine(0,10);
+                            if (aiStats.ollama_ok)
+                                ImGui::TextColored({0.5f,0.8f,1.0f,1}, "Ollama OK");
+                            else
+                                ImGui::TextColored({0.9f,0.5f,0.2f,1}, "Ollama Offline");
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Learn");
+                            ImGui::TableSetColumnIndex(1); ImGui::Text("%s", ai.learning.load() ? "On" : "Off");
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Samples");
+                            ImGui::TableSetColumnIndex(1); ImGui::Text("%d", aiStats.total_samples);
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Patterns");
+                            ImGui::TableSetColumnIndex(1); ImGui::Text("%d", aiStats.unique_patterns);
+                            ImGui::EndTable();
+                        }
+                    }
+
+                    if (ImGui::CollapsingHeader("CW Cache##dash", ImGuiTreeNodeFlags_DefaultOpen)) {
+                        ImGui::TextDisabled("Cache Hits:");   ImGui::SameLine(100*dpi);
+                        ImGui::TextColored({0.3f,0.9f,0.4f,1}, "%d", aiStats.cache_hits);
+                        ImGui::SameLine(0,12);
+                        ImGui::TextDisabled("Misses:");       ImGui::SameLine(220*dpi);
+                        ImGui::Text("%d", aiStats.cache_misses);
+                        ImGui::SameLine(0,12);
+                        ImGui::TextDisabled("Live:");         ImGui::SameLine(330*dpi);
+                        ImGui::Text("%d entries", aiStats.cache_size);
+                        
+                        int totalReq = aiStats.cache_hits + aiStats.cache_misses;
+                        float hitRate = totalReq > 0 ? (float)aiStats.cache_hits / totalReq : 0;
+                        ImGui::TextDisabled("Hit Rate:");     ImGui::SameLine(100*dpi);
+                        ImGui::ProgressBar(hitRate, {200*dpi, 14*dpi});
+                        
+                        ImGui::TextDisabled("Predictions:");  ImGui::SameLine(100*dpi);
+                        ImGui::Text("%d  (correct: %d)", aiStats.predictions, aiStats.correct);
+                        if (aiStats.predictions > 0) {
+                            ImGui::SameLine(0,8);
+                            ImGui::TextColored(aiStats.accuracy > 80 ? ImVec4{0.3f,0.9f,0.4f,1} :
+                                               aiStats.accuracy > 50 ? ImVec4{0.9f,0.8f,0.2f,1} :
+                                                                       ImVec4{0.9f,0.3f,0.3f,1},
+                                               "%.1f%%", aiStats.accuracy);
+                        }
+                        ImGui::TextDisabled("Srv Cache:");    ImGui::SameLine(100*dpi);
+                        ImGui::TextColored({0.3f,0.9f,0.4f,1}, "%d hits", app->cccam.ecmCacheHits.load());
+                    }
+
+                    if (ImGui::CollapsingHeader("Global Proxy (SOCKS5)##dash", ImGuiTreeNodeFlags_DefaultOpen)) {
+                        static char gph[128] = {}, gpu[64] = {}, gpp[64] = {};
+                        static int  gport = 0;
+                        static bool gpInit = false;
+                        if (!gpInit) {
+                            gpInit = true;
+                            snprintf(gph, sizeof(gph), "%s", app->cccam.cfg.global_proxy_host.c_str());
+                            snprintf(gpu, sizeof(gpu), "%s", app->cccam.cfg.global_proxy_user.c_str());
+                            snprintf(gpp, sizeof(gpp), "%s", app->cccam.cfg.global_proxy_pass.c_str());
+                            gport = app->cccam.cfg.global_proxy_port;
+                        }
+                        ImGui::SetNextItemWidth(160*dpi);
+                        if (ImGui::InputText("Host##gp", gph, sizeof(gph)))
+                            app->cccam.cfg.global_proxy_host = gph;
+                        ImGui::SameLine(0,4);
+                        ImGui::SetNextItemWidth(70*dpi);
+                        if (ImGui::InputInt("Port##gp", &gport, 0, 0)) {
+                            if (gport >= 0 && gport < 65536) app->cccam.cfg.global_proxy_port = gport;
+                        }
+                        ImGui::SameLine(0,8);
+                        ImGui::SetNextItemWidth(100*dpi);
+                        if (ImGui::InputText("User##gp", gpu, sizeof(gpu)))
+                            app->cccam.cfg.global_proxy_user = gpu;
+                        ImGui::SameLine(0,4);
+                        ImGui::SetNextItemWidth(100*dpi);
+                        if (ImGui::InputText("Pass##gp", gpp, sizeof(gpp), ImGuiInputTextFlags_Password))
+                            app->cccam.cfg.global_proxy_pass = gpp;
+                        ImGui::SameLine(0,8);
+                        if (ImGui::SmallButton("Apply to All##gp")) {
+                            app->cccam.cfg.applyGlobalProxy();
+                            app->log.add("[CCcam] Global proxy applied to all servers");
+                        }
+                        if (!app->cccam.cfg.global_proxy_host.empty() && app->cccam.cfg.global_proxy_port > 0)
+                            ImGui::TextColored({0.5f,0.8f,1.0f,1}, "Proxy: %s:%d", 
+                                app->cccam.cfg.global_proxy_host.c_str(), app->cccam.cfg.global_proxy_port);
+                        else
+                            ImGui::TextDisabled("No global proxy set (direct connection)");
+                    }
+
+                    if (ImGui::CollapsingHeader("CW Learner##dash")) {
+                        auto lStats = app->cccam.learner.getStats();
+                        ImGui::Text("Samples: %d | Unique ECM: %d | CW: %d | Servers: %d",
+                            lStats.total_samples, lStats.unique_ecms, lStats.unique_cws, lStats.servers);
+                        ImGui::Text("Predictions: %d used (Exact: %d, Pattern: %d) | Accuracy: %.1f%%",
+                            lStats.pred_used, lStats.pred_exact, lStats.pred_pattern, lStats.pred_accuracy);
+                        ImGui::TextDisabled("Auto-save: ON (every 50 learns or 30s) - works offline");
+                    }
+
+                    // ── Background Services ──
+                    if (ImGui::CollapsingHeader("ECM Harvester##dash", ImGuiTreeNodeFlags_DefaultOpen)) {
+                        auto hs = app->harvester.getStats();
+                        if (ImGui::BeginTable("##dash_harv", 2, ImGuiTableFlags_SizingFixedFit)) {
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Status");
+                            ImGui::TableSetColumnIndex(1);
+                            if (hs.running)
+                                ImGui::TextColored({0.3f,0.9f,0.4f,1}, "Running");
+                            else
+                                ImGui::TextColored({0.9f,0.3f,0.3f,1}, "Stopped");
+                            ImGui::SameLine(0,10);
+                            ImGui::TextDisabled("Upstreams: %d/%d", hs.servers_connected, hs.servers_total);
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Targets");
+                            ImGui::TableSetColumnIndex(1); ImGui::Text("%d CAID/SID pairs", hs.total_targets);
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Harvests");
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::Text("%d total", hs.total_harvests);
+                            ImGui::SameLine(0,8);
+                            ImGui::TextColored({0.3f,0.9f,0.4f,1}, "%d ok", hs.total_success);
+                            ImGui::SameLine(0,8);
+                            if (hs.total_fail > 0)
+                                ImGui::TextColored({0.9f,0.3f,0.3f,1}, "%d fail", hs.total_fail);
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Rate");
+                            ImGui::TableSetColumnIndex(1); ImGui::Text("%.1f/min  |  Cycles: %d", hs.harvest_rate, hs.cycle_count);
+                            if (!hs.current_target.empty()) {
+                                ImGui::TableNextRow();
+                                ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Current");
+                                ImGui::TableSetColumnIndex(1); ImGui::TextColored({0.5f,0.8f,1.0f,1}, "%s", hs.current_target.c_str());
+                            }
+                            ImGui::EndTable();
+                        }
+                        // Controls
+                        if (hs.running) {
+                            ImGui::PushStyleColor(ImGuiCol_Button, {0.55f,0.18f,0.18f,0.80f});
+                            if (ImGui::SmallButton("Stop Harvester")) app->harvester.stop();
+                            ImGui::PopStyleColor();
+                        } else {
+                            ImGui::PushStyleColor(ImGuiCol_Button, {0.12f,0.55f,0.18f,0.80f});
+                            if (ImGui::SmallButton("Start Harvester")) app->harvester.start(&app->cccam.cfg.servers);
+                            ImGui::PopStyleColor();
+                        }
+                        ImGui::SameLine(0,8);
+                        ImGui::SetNextItemWidth(80*dpi);
+                        ImGui::SliderInt("Interval ms##harv", &app->harvester.probe_interval_ms, 500, 10000);
+                    }
+
+                    if (ImGui::CollapsingHeader("Offline CW Database##dash", ImGuiTreeNodeFlags_DefaultOpen)) {
+                        auto os = app->offlineCwDb.getStats();
+                        if (ImGui::BeginTable("##dash_offcw", 2, ImGuiTableFlags_SizingFixedFit)) {
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Entries");
+                            ImGui::TableSetColumnIndex(1); ImGui::Text("%d CWs  |  %d channels", os.total_entries, os.unique_channels);
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Lookups");
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::Text("%d total", os.lookups);
+                            ImGui::SameLine(0,8);
+                            ImGui::TextColored({0.3f,0.9f,0.4f,1}, "%d hits", os.hits);
+                            ImGui::SameLine(0,8);
+                            ImGui::TextDisabled("%d misses", os.misses);
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Hit Rate");
+                            ImGui::TableSetColumnIndex(1);
+                            float hr = os.lookups > 0 ? (float)os.hits / os.lookups : 0;
+                            ImGui::ProgressBar(hr, {140*dpi, 14*dpi});
+                            ImGui::SameLine(0,6);
+                            ImGui::Text("%.1f%%", os.hit_rate);
+                            ImGui::EndTable();
+                        }
+                        if (ImGui::SmallButton("Save CW DB")) { app->offlineCwDb.save(); app->log.add("Offline CW DB saved"); }
+                        ImGui::SameLine(0,8);
+                        if (ImGui::SmallButton("Reload CW DB")) { app->offlineCwDb.load(); app->log.add("Offline CW DB reloaded"); }
+                    }
+
+                    if (ImGui::CollapsingHeader("AI Trainer##dash", ImGuiTreeNodeFlags_DefaultOpen)) {
+                        auto ts = app->aiTrainer.getStats();
+                        if (ImGui::BeginTable("##dash_train", 2, ImGuiTableFlags_SizingFixedFit)) {
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Status");
+                            ImGui::TableSetColumnIndex(1);
+                            if (ts.running)
+                                ImGui::TextColored({0.3f,0.9f,0.4f,1}, "Running");
+                            else
+                                ImGui::TextColored({0.9f,0.3f,0.3f,1}, "Stopped");
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Cycles");
+                            ImGui::TableSetColumnIndex(1); ImGui::Text("%d  |  Patterns: %d  |  Saves: %d", ts.train_cycles, ts.patterns_discovered, ts.models_updated);
+                            if (!ts.status.empty()) {
+                                ImGui::TableNextRow();
+                                ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Last");
+                                ImGui::TableSetColumnIndex(1); ImGui::TextColored({0.5f,0.8f,1.0f,1}, "%s", ts.status.c_str());
+                            }
+                            ImGui::EndTable();
+                        }
+                        if (ts.running) {
+                            ImGui::PushStyleColor(ImGuiCol_Button, {0.55f,0.18f,0.18f,0.80f});
+                            if (ImGui::SmallButton("Stop Trainer")) app->aiTrainer.stop();
+                            ImGui::PopStyleColor();
+                        } else {
+                            ImGui::PushStyleColor(ImGuiCol_Button, {0.12f,0.55f,0.18f,0.80f});
+                            if (ImGui::SmallButton("Start Trainer")) {
+                                app->aiTrainer.predictor = &app->cccam.aiPredictor;
+                                app->aiTrainer.learner = &app->cccam.learner;
+                                app->aiTrainer.offlineDb = &app->offlineCwDb;
+                                app->aiTrainer.start();
+                            }
+                            ImGui::PopStyleColor();
+                        }
+                        ImGui::SameLine(0,8);
+                        ImGui::SetNextItemWidth(80*dpi);
+                        ImGui::SliderInt("Train interval s##train", &app->aiTrainer.train_interval_s, 10, 300);
+                    }
+                }
+
+                // ═══════════════════════════════════════════════════════════
+                // TAB 1: SERVERS
+                // ═══════════════════════════════════════════════════════════
+                if (ccTab == 1) {
                     // Toolbar: Add / Ping All / Remove Dead / Auto-clean
                     if (ImGui::Button("+ Add Server", {100*dpi,24*dpi})) {
                         cccam::UpstreamServer ns;
@@ -1848,6 +2460,7 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                     } else {
                         if (anyBusy) ImGui::BeginDisabled();
                         if (ImGui::Button("TCP Ping", {78*dpi,24*dpi})) {
+                            app->cccam.cfg.applyGlobalProxy();
                             pinging = true; pingDone = 0; pingTotal = (int)srvList.size();
                             auto appW = app;
                             std::thread([appW](){
@@ -1894,6 +2507,7 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                         if (anyBusy) ImGui::BeginDisabled();
                         ImGui::PushStyleColor(ImGuiCol_Button, {0.12f,0.42f,0.70f,0.80f});
                         if (ImGui::Button("Full Test", {80*dpi,24*dpi})) {
+                            app->cccam.cfg.applyGlobalProxy();
                             testing = true; testDone = 0; testTotal = (int)srvList.size();
                             auto appW = app;
                             std::thread([appW](){
@@ -1949,6 +2563,7 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                     if (anyBusy) ImGui::BeginDisabled();
                     ImGui::PushStyleColor(ImGuiCol_Button, {0.15f,0.55f,0.15f,0.80f});
                     if (ImGui::Button("Discover Networks", {120*dpi,24*dpi})) {
+                        app->cccam.cfg.applyGlobalProxy();
                         auto appW = app;
                         std::thread([appW](){
                             auto& list = appW->cccam.cfg.servers;
@@ -2151,44 +2766,521 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                 }
 
                 // ═══════════════════════════════════════════════════════════
-                // TAB 1: IMPORT C-LINES
+                // TAB 2: SMART IMPORT (parse + auto-test + auto-add working)
                 // ═══════════════════════════════════════════════════════════
-                if (ccTab == 1) {
-                    static char clBuf[16384] = {};
-                    static char clPxH[128] = "127.0.0.1";
-                    static int  clPxP = 11808;
-                    ImGui::TextColored({0.6f,0.85f,1.0f,1.0f}, "Paste C-lines below:");
-                    ImGui::TextDisabled("Format: C: host port user pass (one per line)");
-                    ImGui::Spacing();
-                    float mlH = ImGui::GetContentRegionAvail().y - 80*dpi;
-                    if (mlH < 60*dpi) mlH = 60*dpi;
-                    ImGui::InputTextMultiline("##clines", clBuf, sizeof(clBuf), {-1, mlH});
-                    ImGui::SetNextItemWidth(140*dpi);
-                    ImGui::InputText("Proxy Host##imp", clPxH, sizeof(clPxH));
-                    ImGui::SameLine(0,6);
-                    ImGui::SetNextItemWidth(70*dpi);
-                    ImGui::InputInt("Proxy Port##imp", &clPxP, 0, 0);
-                    ImGui::SameLine(0,12);
-                    ImGui::PushStyleColor(ImGuiCol_Button, {0.15f,0.50f,0.20f,0.80f});
-                    if (ImGui::Button("Import All", {120*dpi, 28*dpi})) {
-                        std::string px = clPxH;
-                        auto parsed = cccam::parseCLines(clBuf, px, clPxP);
-                        for (auto& s : parsed)
-                            srvList.push_back(std::move(s));
-                        if (!parsed.empty()) {
-                            app->log.add("[CCcam] Imported " + std::to_string(parsed.size()) + " servers");
-                            clBuf[0] = 0;
+                if (ccTab == 2) {
+                    static char clBuf[65536] = {};
+                    static std::vector<cccam::UpstreamServer> candidates;
+                    static std::atomic<bool> impTesting{false};
+                    static std::atomic<int>  impTestDone{0};
+                    static std::atomic<int>  impTestTotal{0};
+                    static std::atomic<int>  impAutoAdded{0};
+                    static bool showPaste = true;
+
+                    // ── Helper: start parallel test + auto-add working ──
+                    auto startSmartTest = [&]() {
+                        if (candidates.empty() || impTesting.load()) return;
+                        impTesting = true;
+                        impTestDone = 0;
+                        impTestTotal = (int)candidates.size();
+                        impAutoAdded = 0;
+                        // Capture pointers to static/shared data
+                        auto* pCand = &candidates;
+                        auto* pSrv  = &srvList;
+                        auto  a     = app;
+                        std::thread([pCand, pSrv, a]() {
+                            auto& cands = *pCand;
+                            std::atomic<int> idx{0};
+                            int total = (int)cands.size();
+                            int nThreads = std::min(32, total);
+                            std::vector<std::thread> pool;
+                            for (int t = 0; t < nThreads; t++) {
+                                pool.emplace_back([&]() {
+                                    while (true) {
+                                        int i = idx.fetch_add(1);
+                                        if (i >= total) break;
+                                        auto& c = cands[i];
+                                        int cards = 0;
+                                        int res = cccam::cccamFullTest(c, cards, 8000);
+                                        if (res == 0) {
+                                            c.ping_status = 1;
+                                            c.test_detail = "OK (" + std::to_string(cards) + " cards)";
+                                            // Auto-add to server list (dedup)
+                                            bool dup = false;
+                                            for (auto& s : *pSrv)
+                                                if (s.host == c.host && s.port == c.port && s.user == c.user) { dup = true; break; }
+                                            if (!dup) {
+                                                pSrv->push_back(c);
+                                                impAutoAdded++;
+                                            }
+                                        } else {
+                                            c.ping_status = -1;
+                                            if (res == -1) c.test_detail = "TCP FAIL";
+                                            else if (res == -2) c.test_detail = "NO SEED";
+                                            else c.test_detail = "AUTH FAIL";
+                                        }
+                                        impTestDone++;
+                                    }
+                                });
+                            }
+                            for (auto& t : pool) if (t.joinable()) t.join();
+                            // Auto-save config with newly added servers
+                            int added = impAutoAdded.load();
+                            if (added > 0) {
+                                try {
+                                    cccam::CccamConfig ccfg;
+                                    ccfg.port = a->cccam.cfg.port; ccfg.user = a->cccam.cfg.user;
+                                    ccfg.pass = a->cccam.cfg.pass; ccfg.log_ecm = a->cccam.cfg.log_ecm;
+                                    ccfg.global_proxy_host = a->cccam.cfg.global_proxy_host;
+                                    ccfg.global_proxy_port = a->cccam.cfg.global_proxy_port;
+                                    ccfg.global_proxy_user = a->cccam.cfg.global_proxy_user;
+                                    ccfg.global_proxy_pass = a->cccam.cfg.global_proxy_pass;
+                                    ccfg.servers = *pSrv; ccfg.save();
+                                } catch (...) {}
+                                try { a->cccamLog.add("[Import] Auto-added " + std::to_string(added) + " working servers"); } catch (...) {}
+                            }
+                            impTesting = false;
+                        }).detach();
+                    };
+
+                    if (showPaste && candidates.empty()) {
+                        // ── Paste area ──
+                        ImGui::TextColored({0.6f,0.85f,1.0f,1}, "Smart Import");
+                        ImGui::SameLine(0,6);
+                        ImGui::TextDisabled("Paste any text — C-lines, Oscam readers, HOST/PORT/USER/PASS, mixed");
+                        ImGui::Spacing();
+                        float mlH = ImGui::GetContentRegionAvail().y - 44*dpi;
+                        if (mlH < 80*dpi) mlH = 80*dpi;
+                        ImGui::InputTextMultiline("##smartpaste", clBuf, sizeof(clBuf), {-1, mlH});
+
+                        ImGui::PushStyleColor(ImGuiCol_Button, {0.15f,0.55f,0.75f,0.90f});
+                        if (ImGui::Button("Smart Parse & Test", {170*dpi, 28*dpi})) {
+                            std::string gpH = app->cccam.cfg.global_proxy_host;
+                            int gpP = app->cccam.cfg.global_proxy_port;
+                            std::string gpU = app->cccam.cfg.global_proxy_user;
+                            std::string gpPw = app->cccam.cfg.global_proxy_pass;
+                            candidates = cccam::parseSmartText(clBuf, gpH, gpP, gpU, gpPw);
+                            if (candidates.empty()) {
+                                app->log.add("[Import] No servers found in pasted text");
+                            } else {
+                                app->log.add("[Import] Parsed " + std::to_string(candidates.size()) +
+                                             " servers, testing...");
+                                showPaste = false;
+                                startSmartTest();  // immediately start testing
+                            }
+                        }
+                        ImGui::PopStyleColor();
+                        ImGui::SameLine(0,8);
+                        ImGui::TextDisabled("(%d servers loaded)", (int)srvList.size());
+
+                    } else {
+                        // ── Results view (live updating during test) ──
+                        int nOk = 0, nFail = 0, nUntested = 0;
+                        for (auto& c : candidates) {
+                            if (c.ping_status == 1) nOk++;
+                            else if (c.ping_status == -1) nFail++;
+                            else nUntested++;
+                        }
+
+                        // ── Status bar ──
+                        bool testing = impTesting.load();
+                        if (testing) {
+                            int done = impTestDone.load(), total = impTestTotal.load();
+                            ImGui::TextColored({0.5f,0.8f,1.0f,1}, "Testing %d/%d ...", done, total);
+                            ImGui::SameLine(0,8);
+                            ImGui::ProgressBar(total > 0 ? (float)done / total : 0, {140*dpi, 16*dpi});
+                        } else {
+                            ImGui::TextColored({0.6f,0.85f,1.0f,1}, "Done! %d servers", (int)candidates.size());
+                        }
+                        ImGui::SameLine(0,10);
+                        if (nOk > 0) {
+                            ImGui::TextColored({0.3f,0.9f,0.4f,1}, "%d OK (added)", nOk);
+                            ImGui::SameLine(0,6);
+                        }
+                        if (nFail > 0) {
+                            ImGui::TextColored({0.9f,0.3f,0.3f,1}, "%d fail", nFail);
+                            ImGui::SameLine(0,6);
+                        }
+                        if (nUntested > 0 && testing) {
+                            ImGui::TextDisabled("%d pending", nUntested);
+                            ImGui::SameLine(0,6);
+                        }
+
+                        // ── Buttons row ──
+                        if (!testing) {
+                            // Re-test button (in case user wants to retry)
+                            ImGui::PushStyleColor(ImGuiCol_Button, {0.15f,0.45f,0.70f,0.90f});
+                            if (ImGui::Button("Re-Test All", {100*dpi, 26*dpi})) {
+                                for (auto& c : candidates) { c.ping_status = 0; c.test_detail.clear(); }
+                                startSmartTest();
+                            }
+                            ImGui::PopStyleColor();
+                            ImGui::SameLine(0,6);
+                            if (ImGui::SmallButton("Clear & Paste New")) {
+                                candidates.clear();
+                                showPaste = true;
+                                clBuf[0] = 0;
+                            }
+                        }
+
+                        ImGui::Separator();
+
+                        // ── Candidates table — OK on top, then pending, then fail ──
+                        float tblH = ImGui::GetContentRegionAvail().y;
+                        if (tblH < 40*dpi) tblH = 40*dpi;
+                        if (ImGui::BeginTable("##impTbl", 6,
+                            ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
+                            ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingStretchProp,
+                            {0, tblH}))
+                        {
+                            ImGui::TableSetupScrollFreeze(0, 1);
+                            ImGui::TableSetupColumn("##st", ImGuiTableColumnFlags_WidthFixed, 20*dpi);
+                            ImGui::TableSetupColumn("Host:Port", ImGuiTableColumnFlags_WidthStretch);
+                            ImGui::TableSetupColumn("User", ImGuiTableColumnFlags_WidthFixed, 110*dpi);
+                            ImGui::TableSetupColumn("Pass", ImGuiTableColumnFlags_WidthFixed, 110*dpi);
+                            ImGui::TableSetupColumn("Result", ImGuiTableColumnFlags_WidthFixed, 110*dpi);
+                            ImGui::TableSetupColumn("##x", ImGuiTableColumnFlags_WidthFixed, 20*dpi);
+                            ImGui::TableHeadersRow();
+
+                            // Build sorted display order: OK first, then pending, then fail
+                            static std::vector<int> dispOrder;
+                            dispOrder.clear();
+                            for (int i = 0; i < (int)candidates.size(); i++)
+                                if (candidates[i].ping_status == 1) dispOrder.push_back(i);
+                            for (int i = 0; i < (int)candidates.size(); i++)
+                                if (candidates[i].ping_status == 0) dispOrder.push_back(i);
+                            for (int i = 0; i < (int)candidates.size(); i++)
+                                if (candidates[i].ping_status == -1) dispOrder.push_back(i);
+
+                            int removeIdx = -1;
+                            for (int di : dispOrder) {
+                                auto& c = candidates[di];
+                                ImGui::TableNextRow();
+                                ImGui::PushID(di + 90000);
+                                // Status
+                                ImGui::TableSetColumnIndex(0);
+                                if (c.ping_status == 1)
+                                    ImGui::TextColored({0.3f,0.9f,0.4f,1}, "+");
+                                else if (c.ping_status == -1)
+                                    ImGui::TextColored({0.9f,0.3f,0.3f,1}, "x");
+                                else
+                                    ImGui::TextDisabled("...");
+                                // Host:Port
+                                ImGui::TableSetColumnIndex(1);
+                                ImGui::Text("%s:%d", c.host.c_str(), c.port);
+                                // User
+                                ImGui::TableSetColumnIndex(2);
+                                ImGui::TextDisabled("%s", c.user.c_str());
+                                // Pass
+                                ImGui::TableSetColumnIndex(3);
+                                ImGui::TextDisabled("%s", c.pass.c_str());
+                                // Result
+                                ImGui::TableSetColumnIndex(4);
+                                if (c.ping_status == 1)
+                                    ImGui::TextColored({0.3f,0.9f,0.4f,1}, "%s", c.test_detail.c_str());
+                                else if (c.ping_status == -1)
+                                    ImGui::TextColored({0.9f,0.3f,0.3f,1}, "%s", c.test_detail.c_str());
+                                else
+                                    ImGui::TextDisabled("testing...");
+                                // Remove
+                                ImGui::TableSetColumnIndex(5);
+                                if (!testing && ImGui::SmallButton("x")) removeIdx = di;
+                                ImGui::PopID();
+                            }
+                            ImGui::EndTable();
+                            if (removeIdx >= 0 && removeIdx < (int)candidates.size() && !testing)
+                                candidates.erase(candidates.begin() + removeIdx);
                         }
                     }
-                    ImGui::PopStyleColor();
-                    ImGui::SameLine(0,8);
-                    ImGui::TextDisabled("(%d servers currently loaded)", (int)srvList.size());
                 }
 
                 // ═══════════════════════════════════════════════════════════
-                // TAB 2: LEARNER (ECM/CW ML Engine)
+                // TAB 3: AI ENGINE (Prediction + Ollama + CAIDs + AI Servers)
                 // ═══════════════════════════════════════════════════════════
-                if (ccTab == 2) {
+                if (ccTab == 3) {
+                    auto& ai = app->cccam.aiPredictor;
+                    auto aiStats = ai.getStats();
+                    bool aiOn = app->cccam.aiEnabled;
+                    
+                    // ── Controls row ──
+                    if (aiOn)
+                        ImGui::TextColored({0.3f,0.9f,0.4f,1}, "AI Active");
+                    else
+                        ImGui::TextColored({0.6f,0.6f,0.6f,1}, "AI Disabled");
+                    ImGui::SameLine(0,8);
+                    if (aiStats.ollama_ok)
+                        ImGui::TextColored({0.5f,0.8f,1.0f,1}, "Ollama OK (%s)", ai.model.c_str());
+                    else
+                        ImGui::TextColored({0.9f,0.5f,0.2f,1}, "Ollama Offline");
+                    ImGui::SameLine(200*dpi);
+                    if (ImGui::Checkbox("Enable##ai3", &aiOn))
+                        app->cccam.aiEnabled = aiOn;
+                    ImGui::SameLine(0,6);
+                    bool learning = ai.learning.load();
+                    if (ImGui::Checkbox("Learn##ai3", &learning))
+                        ai.learning = learning;
+                    ImGui::SameLine(0,6);
+                    if (ImGui::SmallButton("Check Ollama##ai3"))
+                        std::thread([&ai]() { ai.checkOllama(); }).detach();
+                    ImGui::Separator();
+
+                    // ── AI Sub-tabs ──
+                    static int aiSub = 0;
+                    if (ImGui::BeginTabBar("##aiSubTabs")) {
+                        // ── Stats ──
+                        if (ImGui::BeginTabItem("Stats##ai")) {
+                            aiSub = 0;
+                            ImGui::TextColored({0.6f,0.85f,1.0f,1}, "Pattern Learning");
+                            ImGui::TextDisabled("Samples:");     ImGui::SameLine(100*dpi); ImGui::Text("%d", aiStats.total_samples);
+                            ImGui::TextDisabled("Patterns:");    ImGui::SameLine(100*dpi); ImGui::Text("%d", aiStats.unique_patterns);
+                            ImGui::TextDisabled("Servers:");     ImGui::SameLine(100*dpi); ImGui::Text("%d", aiStats.servers_tracked);
+                            ImGui::TextDisabled("CAIDs:");       ImGui::SameLine(100*dpi); ImGui::Text("%d", aiStats.caids_seen);
+                            ImGui::Spacing();
+                            ImGui::TextColored({0.6f,0.85f,1.0f,1}, "CW Prediction");
+                            ImGui::TextDisabled("Predictions:"); ImGui::SameLine(100*dpi); ImGui::Text("%d", aiStats.predictions);
+                            ImGui::TextDisabled("Correct:");     ImGui::SameLine(100*dpi); ImGui::Text("%d", aiStats.correct);
+                            ImGui::TextDisabled("AI Pred:");     ImGui::SameLine(100*dpi); ImGui::Text("%d", aiStats.ai_predictions);
+                            ImGui::TextDisabled("Accuracy:");    ImGui::SameLine(100*dpi);
+                            if (aiStats.predictions > 0)
+                                ImGui::TextColored(aiStats.accuracy > 80 ? ImVec4{0.3f,0.9f,0.4f,1} :
+                                                   aiStats.accuracy > 50 ? ImVec4{0.9f,0.8f,0.2f,1} :
+                                                                           ImVec4{0.9f,0.3f,0.3f,1},
+                                                   "%.1f%%", aiStats.accuracy);
+                            else ImGui::TextDisabled("--");
+                            ImGui::Spacing();
+                            ImGui::TextColored({0.6f,0.85f,1.0f,1}, "CW Cache (10s TTL)");
+                            ImGui::TextDisabled("Hits:");    ImGui::SameLine(100*dpi);
+                            ImGui::TextColored({0.3f,0.9f,0.4f,1}, "%d", aiStats.cache_hits);
+                            ImGui::TextDisabled("Misses:");  ImGui::SameLine(100*dpi); ImGui::Text("%d", aiStats.cache_misses);
+                            ImGui::TextDisabled("Entries:"); ImGui::SameLine(100*dpi); ImGui::Text("%d live", aiStats.cache_size);
+                            ImGui::TextDisabled("Srv Cache:"); ImGui::SameLine(100*dpi);
+                            ImGui::TextColored({0.3f,0.9f,0.4f,1}, "%d hits", app->cccam.ecmCacheHits.load());
+                            int totalReq = aiStats.cache_hits + aiStats.cache_misses;
+                            float hitRate = totalReq > 0 ? (float)aiStats.cache_hits / totalReq : 0;
+                            ImGui::TextDisabled("Hit Rate:"); ImGui::SameLine(100*dpi);
+                            ImGui::ProgressBar(hitRate, {120*dpi, 14*dpi});
+                            ImGui::Spacing(); ImGui::Separator();
+                            if (ImGui::Button("Save Model##ai3", {100*dpi, 24*dpi})) { ai.save(); app->log.add("[AI] Model saved"); }
+                            ImGui::SameLine(0,4);
+                            if (ImGui::Button("Load Model##ai3", {100*dpi, 24*dpi})) { ai.load(); app->log.add("[AI] Model loaded"); }
+                            ImGui::SameLine(0,4);
+                            if (ImGui::Button("Clear Stats##ai3", {100*dpi, 24*dpi})) {
+                                ai.predictions_made = 0; ai.predictions_correct = 0; ai.ai_predictions = 0;
+                                ai.cache_hits = 0; ai.cache_misses = 0; app->cccam.ecmCacheHits = 0;
+                            }
+                            ImGui::EndTabItem();
+                        }
+                        // ── CAIDs ──
+                        if (ImGui::BeginTabItem("CAIDs##ai")) {
+                            aiSub = 1;
+                            auto caids = ai.getCaidList();
+                            if (ImGui::BeginTable("##caidTbl3", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY)) {
+                                ImGui::TableSetupScrollFreeze(0, 1);
+                                ImGui::TableSetupColumn("CAID", ImGuiTableColumnFlags_WidthFixed, 50*dpi);
+                                ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
+                                ImGui::TableSetupColumn("ECMs", ImGuiTableColumnFlags_WidthFixed, 50*dpi);
+                                ImGui::TableSetupColumn("OK", ImGuiTableColumnFlags_WidthFixed, 40*dpi);
+                                ImGui::TableSetupColumn("Rate", ImGuiTableColumnFlags_WidthFixed, 50*dpi);
+                                ImGui::TableHeadersRow();
+                                for (auto& ci : caids) {
+                                    ImGui::TableNextRow();
+                                    ImGui::TableSetColumnIndex(0); ImGui::Text("%04X", ci.caid);
+                                    ImGui::TableSetColumnIndex(1); ImGui::TextDisabled("%s", ci.name.c_str());
+                                    ImGui::TableSetColumnIndex(2); ImGui::Text("%d", ci.ecm_count);
+                                    ImGui::TableSetColumnIndex(3); ImGui::Text("%d", ci.success_count);
+                                    ImGui::TableSetColumnIndex(4);
+                                    float rate = ci.ecm_count > 0 ? (float)ci.success_count / ci.ecm_count * 100 : 0;
+                                    ImGui::TextColored(rate > 80 ? ImVec4{0.3f,0.9f,0.4f,1} :
+                                                       rate > 50 ? ImVec4{0.9f,0.8f,0.2f,1} :
+                                                                   ImVec4{0.9f,0.3f,0.3f,1}, "%.0f%%", rate);
+                                }
+                                ImGui::EndTable();
+                            }
+                            if (caids.empty()) ImGui::TextDisabled("No CAIDs detected yet. Watch encrypted channels to learn.");
+                            ImGui::EndTabItem();
+                        }
+                        // ── AI Report ──
+                        if (ImGui::BeginTabItem("AI Report##ai")) {
+                            aiSub = 2;
+                            std::string report = ai.getOllamaReport();
+                            time_t repTime = ai.getOllamaReportTime();
+                            if (!report.empty()) {
+                                char tBuf[64] = {};
+                                struct tm* tm = localtime(&repTime);
+                                if (tm) strftime(tBuf, sizeof(tBuf), "%H:%M:%S", tm);
+                                ImGui::TextColored({0.6f,0.85f,1.0f,1}, "Last analysis: %s", tBuf);
+                                ImGui::Separator();
+                                if (ImGui::BeginChild("##aiRep3", {0, ImGui::GetContentRegionAvail().y - 30*dpi}, true)) {
+                                    std::istringstream ss(report);
+                                    std::string line;
+                                    while (std::getline(ss, line)) {
+                                        if (line.size() > 4 && line.substr(0,5) == "RANK:")
+                                            ImGui::TextColored({0.3f,0.9f,0.4f,1}, "%s", line.c_str());
+                                        else if (line.size() > 5 && line.substr(0,6) == "ISSUE:")
+                                            ImGui::TextColored({0.9f,0.6f,0.2f,1}, "%s", line.c_str());
+                                        else if (line.size() > 4 && line.substr(0,5) == "BEST:")
+                                            ImGui::TextColored({0.5f,0.8f,1.0f,1}, "%s", line.c_str());
+                                        else if (line.size() > 7 && line.substr(0,8) == "SUMMARY:")
+                                            ImGui::TextColored({1.0f,0.9f,0.5f,1}, "%s", line.c_str());
+                                        else if (!line.empty())
+                                            ImGui::TextDisabled("%s", line.c_str());
+                                    }
+                                }
+                                ImGui::EndChild();
+                            } else {
+                                if (aiStats.ollama_ok) {
+                                    ImGui::TextDisabled("Analysis pending... (runs every 60s)");
+                                } else {
+                                    ImGui::TextColored({0.9f,0.3f,0.3f,1}, "Ollama not available");
+                                    ImGui::TextDisabled("Start Ollama: ollama serve");
+                                    ImGui::TextDisabled("Model: %s", ai.model.c_str());
+                                }
+                            }
+                            ImGui::Separator();
+                            if (ImGui::Button("Analyze Now##ai3", {120*dpi, 24*dpi})) {
+                                ai.triggerAnalysis(); app->log.add("[AI] Analysis triggered");
+                            }
+                            ImGui::SameLine(0,4);
+                            if (ImGui::Button("Check Ollama##rep3", {120*dpi, 24*dpi}))
+                                std::thread([&ai]() { ai.checkOllama(); }).detach();
+                            ImGui::EndTabItem();
+                        }
+                        // ── AI Servers ──
+                        if (ImGui::BeginTabItem("AI Servers##ai")) {
+                            aiSub = 3;
+                            auto servers = ai.getServerList();
+                            if (ImGui::BeginTable("##aiSrvTbl3", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY)) {
+                                ImGui::TableSetupScrollFreeze(0, 1);
+                                ImGui::TableSetupColumn("Server", ImGuiTableColumnFlags_WidthStretch);
+                                ImGui::TableSetupColumn("Reqs", ImGuiTableColumnFlags_WidthFixed, 45*dpi);
+                                ImGui::TableSetupColumn("OK", ImGuiTableColumnFlags_WidthFixed, 40*dpi);
+                                ImGui::TableSetupColumn("Rate", ImGuiTableColumnFlags_WidthFixed, 50*dpi);
+                                ImGui::TableSetupColumn("Lat", ImGuiTableColumnFlags_WidthFixed, 50*dpi);
+                                ImGui::TableHeadersRow();
+                                for (auto& [name, sq] : servers) {
+                                    ImGui::TableNextRow();
+                                    ImGui::TableSetColumnIndex(0); ImGui::Text("%s", name.c_str());
+                                    ImGui::TableSetColumnIndex(1); ImGui::Text("%d", sq.total_requests);
+                                    ImGui::TableSetColumnIndex(2); ImGui::Text("%d", sq.successful);
+                                    ImGui::TableSetColumnIndex(3);
+                                    ImGui::TextColored(sq.success_rate > 0.8f ? ImVec4{0.3f,0.9f,0.4f,1} :
+                                                       sq.success_rate > 0.5f ? ImVec4{0.9f,0.8f,0.2f,1} :
+                                                                                ImVec4{0.9f,0.3f,0.3f,1},
+                                                       "%.0f%%", sq.success_rate * 100);
+                                    ImGui::TableSetColumnIndex(4); ImGui::TextDisabled("%.0fms", sq.avg_latency_ms);
+                                }
+                                ImGui::EndTable();
+                            }
+                            if (servers.empty()) ImGui::TextDisabled("No AI server data yet.");
+                            ImGui::EndTabItem();
+                        }
+                        // ── Channel Analytics ──
+                        if (ImGui::BeginTabItem("Channels##ai")) {
+                            aiSub = 4;
+                            auto chList = ai.getChannelStatsList();
+                            ImGui::TextDisabled("%d channels tracked", (int)chList.size());
+                            float tblH = ImGui::GetContentRegionAvail().y;
+                            if (tblH < 40*dpi) tblH = 40*dpi;
+                            if (ImGui::BeginTable("##chTbl", 9,
+                                ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
+                                ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingStretchProp,
+                                {0, tblH}))
+                            {
+                                ImGui::TableSetupScrollFreeze(0, 1);
+                                ImGui::TableSetupColumn("CAID",    ImGuiTableColumnFlags_WidthFixed, 42*dpi);
+                                ImGui::TableSetupColumn("SID",     ImGuiTableColumnFlags_WidthFixed, 42*dpi);
+                                ImGui::TableSetupColumn("ECMs",    ImGuiTableColumnFlags_WidthFixed, 42*dpi);
+                                ImGui::TableSetupColumn("Rate",    ImGuiTableColumnFlags_WidthFixed, 38*dpi);
+                                ImGui::TableSetupColumn("Lat",     ImGuiTableColumnFlags_WidthFixed, 38*dpi);
+                                ImGui::TableSetupColumn("CW Rot",  ImGuiTableColumnFlags_WidthFixed, 52*dpi);
+                                ImGui::TableSetupColumn("XOR",     ImGuiTableColumnFlags_WidthFixed, 32*dpi);
+                                ImGui::TableSetupColumn("Parity",  ImGuiTableColumnFlags_WidthFixed, 48*dpi);
+                                ImGui::TableSetupColumn("Best Srv", ImGuiTableColumnFlags_WidthStretch);
+                                ImGui::TableHeadersRow();
+                                for (auto& ch : chList) {
+                                    ImGui::TableNextRow();
+                                    ImGui::TableSetColumnIndex(0); ImGui::Text("%04X", ch.caid);
+                                    ImGui::TableSetColumnIndex(1); ImGui::Text("%04X", ch.sid);
+                                    ImGui::TableSetColumnIndex(2); ImGui::Text("%d", ch.ecm_total);
+                                    ImGui::TableSetColumnIndex(3);
+                                    ImGui::TextColored(ch.success_rate > 0.8f ? ImVec4{0.3f,0.9f,0.4f,1} :
+                                                       ch.success_rate > 0.5f ? ImVec4{0.9f,0.8f,0.2f,1} :
+                                                                                ImVec4{0.9f,0.3f,0.3f,1},
+                                                       "%.0f%%", ch.success_rate * 100);
+                                    if (ImGui::IsItemHovered()) {
+                                        ImGui::BeginTooltip();
+                                        ImGui::Text("ECM: %d total", ch.ecm_total);
+                                        ImGui::Text("OK: %d  Fail: %d", ch.ecm_ok, ch.ecm_fail);
+                                        ImGui::Text("Rate(raw): %.1f%%", ch.success_rate_raw * 100.0f);
+                                        ImGui::Text("Rate(smooth): %.1f%%", ch.success_rate * 100.0f);
+                                        ImGui::EndTooltip();
+                                    }
+                                    ImGui::TableSetColumnIndex(4);
+                                    ImGui::TextDisabled("%.0f", ch.avg_latency_ms);
+                                    if (ImGui::IsItemHovered()) {
+                                        ImGui::BeginTooltip();
+                                        ImGui::Text("Latency EMA: %.0fms", ch.avg_latency_ms);
+                                        ImGui::Text("EMA alpha: %.2f", ai::ChannelStats::kLatencyEmaAlpha);
+                                        ImGui::EndTooltip();
+                                    }
+                                    // CW Rotation period
+                                    ImGui::TableSetColumnIndex(5);
+                                    if (ch.rotation_samples >= 2) {
+                                        ImGui::TextColored({0.5f,0.8f,1.0f,1}, "%.0fs", ch.avg_rotation_sec);
+                                        if (ImGui::IsItemHovered()) {
+                                            ImGui::BeginTooltip();
+                                            ImGui::Text("CW rotation: %.1f-%.1fs avg", ch.min_rotation_sec, ch.max_rotation_sec);
+                                            ImGui::Text("Changes: %d, Samples: %d", ch.cw_changes, ch.rotation_samples);
+                                            ImGui::Text("Jitter(EMA abs dev): %.2fs", ch.rotation_jitter_sec);
+                                            ImGui::EndTooltip();
+                                        }
+                                    } else if (ch.cw_changes > 0) {
+                                        ImGui::TextDisabled("%d chg", ch.cw_changes);
+                                    } else {
+                                        ImGui::TextDisabled("--");
+                                    }
+                                    // XOR-delta stability
+                                    ImGui::TableSetColumnIndex(6);
+                                    if (ch.xor_stable)
+                                        ImGui::TextColored({0.3f,0.9f,0.4f,1}, "OK");
+                                    else if (ch.xor_pattern_repeats > 0)
+                                        ImGui::TextDisabled("%d", ch.xor_pattern_repeats);
+                                    else
+                                        ImGui::TextDisabled("--");
+                                    if (ImGui::IsItemHovered()) {
+                                        ImGui::BeginTooltip();
+                                        ImGui::Text("XOR repeats: %d", ch.xor_pattern_repeats);
+                                        ImGui::Text("Stability: %.2f", ch.xor_stability);
+                                        ImGui::Text("Stable threshold: %d", ai::ChannelStats::kXorStableRepeats);
+                                        ImGui::EndTooltip();
+                                    }
+                                    // Parity (even/odd ECM ratio)
+                                    ImGui::TableSetColumnIndex(7);
+                                    if (ch.even_ecm_count > 0 || ch.odd_ecm_count > 0)
+                                        ImGui::TextDisabled("%d/%d", ch.even_ecm_count, ch.odd_ecm_count);
+                                    else
+                                        ImGui::TextDisabled("--");
+                                    // Best server
+                                    ImGui::TableSetColumnIndex(8);
+                                    if (!ch.best_server.empty())
+                                        ImGui::TextDisabled("%s", ch.best_server.c_str());
+                                    else
+                                        ImGui::TextDisabled("--");
+                                }
+                                ImGui::EndTable();
+                            }
+                            if (chList.empty()) ImGui::TextDisabled("No channel data yet. Watch encrypted channels.");
+                            ImGui::EndTabItem();
+                        }
+                        ImGui::EndTabBar();
+                    }
+                    (void)aiSub;
+                }
+
+                // ═══════════════════════════════════════════════════════════
+                // TAB 4: LEARNER (ECM/CW ML Engine)
+                // ═══════════════════════════════════════════════════════════
+                if (ccTab == 4) {
                     auto stats = app->cccam.learner.getStats();
                     ImGui::TextColored({0.6f,0.85f,1.0f,1.0f}, "CW Learning Engine");
                     ImGui::Separator();
@@ -2304,9 +3396,9 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                 }
 
                 // ═══════════════════════════════════════════════════════════
-                // TAB 3: CONFIG
+                // TAB 5: CONFIG
                 // ═══════════════════════════════════════════════════════════
-                if (ccTab == 3) {
+                if (ccTab == 5) {
                     bool cfgDis = srv;
                     if (cfgDis) ImGui::BeginDisabled();
 
@@ -2345,251 +3437,20 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
 
                     if (cfgDis) ImGui::EndDisabled();
                 }
+
+                ImGui::PopStyleVar(2);
             }
             ImGui::End();
         }
 
         // ════════════════════════════════════════════════════════════════
-        // AI DECRYPTION ENGINE
+        // ── TAB 2: STB INFO (docked in main content area) ──
         // ════════════════════════════════════════════════════════════════
-        if (app->showAI) {
-            ImGui::SetNextWindowSize({450*dpi, 400*dpi}, ImGuiCond_FirstUseEver);
-            if (ImGui::Begin("AI Decryption Engine", &app->showAI)) {
-                auto& ai = app->cccam.aiPredictor;
-                auto aiStats = ai.getStats();
-                bool aiOn = app->cccam.aiEnabled;
-                
-                // Status bar
-                if (aiOn) {
-                    ImGui::TextColored({0.3f,0.9f,0.4f,1}, "● Active");
-                } else {
-                    ImGui::TextColored({0.6f,0.6f,0.6f,1}, "○ Disabled");
-                }
-                ImGui::SameLine(0,8);
-                if (aiStats.ollama_ok) {
-                    ImGui::TextColored({0.5f,0.8f,1.0f,1}, "Ollama OK");
-                }
-                ImGui::SameLine(180*dpi);
-                if (ImGui::Checkbox("Enable##ai", &aiOn)) {
-                    app->cccam.aiEnabled = aiOn;
-                }
-                ImGui::SameLine(0,8);
-                bool learning = ai.learning.load();
-                if (ImGui::Checkbox("Learn##ai", &learning)) {
-                    ai.learning = learning;
-                }
-                ImGui::SameLine(0,8);
-                if (ImGui::SmallButton("Check Ollama")) {
-                    ai.checkOllama();
-                }
-                ImGui::Separator();
-                
-                static int aiTab = 0;
-                if (ImGui::BeginTabBar("##aiTabs")) {
-                    // ── TAB 1: STATS ──
-                    if (ImGui::BeginTabItem("Stats")) {
-                        aiTab = 0;
-                        ImGui::TextColored({0.6f,0.85f,1.0f,1}, "Pattern Learning");
-                        ImGui::TextDisabled("Samples:");     ImGui::SameLine(100*dpi); ImGui::Text("%d", aiStats.total_samples);
-                        ImGui::TextDisabled("Patterns:");    ImGui::SameLine(100*dpi); ImGui::Text("%d", aiStats.unique_patterns);
-                        ImGui::TextDisabled("Servers:");     ImGui::SameLine(100*dpi); ImGui::Text("%d", aiStats.servers_tracked);
-                        ImGui::TextDisabled("CAIDs:");       ImGui::SameLine(100*dpi); ImGui::Text("%d", aiStats.caids_seen);
-                        
-                        ImGui::Spacing();
-                        ImGui::TextColored({0.6f,0.85f,1.0f,1}, "CW Prediction");
-                        ImGui::TextDisabled("Predictions:"); ImGui::SameLine(100*dpi); ImGui::Text("%d", aiStats.predictions);
-                        ImGui::TextDisabled("Correct:");     ImGui::SameLine(100*dpi); ImGui::Text("%d", aiStats.correct);
-                        ImGui::TextDisabled("AI Pred:");     ImGui::SameLine(100*dpi); ImGui::Text("%d", aiStats.ai_predictions);
-                        ImGui::TextDisabled("Accuracy:");    ImGui::SameLine(100*dpi); 
-                        if (aiStats.predictions > 0) {
-                            ImGui::TextColored(aiStats.accuracy > 80 ? ImVec4{0.3f,0.9f,0.4f,1} : 
-                                               aiStats.accuracy > 50 ? ImVec4{0.9f,0.8f,0.2f,1} : 
-                                                                       ImVec4{0.9f,0.3f,0.3f,1},
-                                               "%.1f%%", aiStats.accuracy);
-                        } else {
-                            ImGui::TextDisabled("--");
-                        }
-                        
-                        ImGui::Spacing();
-                        ImGui::TextColored({0.6f,0.85f,1.0f,1}, "CW Cache (10s TTL)");
-                        ImGui::TextDisabled("Hits:");         ImGui::SameLine(100*dpi);
-                        ImGui::TextColored({0.3f,0.9f,0.4f,1}, "%d", aiStats.cache_hits);
-                        ImGui::TextDisabled("Misses:");       ImGui::SameLine(100*dpi);
-                        ImGui::Text("%d", aiStats.cache_misses);
-                        ImGui::TextDisabled("Entries:");      ImGui::SameLine(100*dpi);
-                        ImGui::Text("%d live", aiStats.cache_size);
-                        ImGui::TextDisabled("Srv Cache Hits:"); ImGui::SameLine(100*dpi);
-                        ImGui::TextColored({0.3f,0.9f,0.4f,1}, "%d", app->cccam.ecmCacheHits.load());
-                        // Hit rate bar
-                        int totalReq = aiStats.cache_hits + aiStats.cache_misses;
-                        float hitRate = totalReq > 0 ? (float)aiStats.cache_hits / totalReq : 0;
-                        ImGui::TextDisabled("Hit Rate:");     ImGui::SameLine(100*dpi);
-                        ImGui::ProgressBar(hitRate, {120*dpi, 14*dpi});
-
-                        ImGui::Spacing();
-                        ImGui::Separator();
-                        if (ImGui::Button("Save Model", {100*dpi, 24*dpi})) {
-                            ai.save();
-                            app->log.add("[AI] Model saved");
-                        }
-                        ImGui::SameLine(0,4);
-                        if (ImGui::Button("Load Model", {100*dpi, 24*dpi})) {
-                            ai.load();
-                            app->log.add("[AI] Model loaded");
-                        }
-                        ImGui::SameLine(0,4);
-                        if (ImGui::Button("Clear Stats", {100*dpi, 24*dpi})) {
-                            ai.predictions_made = 0;
-                            ai.predictions_correct = 0;
-                            ai.ai_predictions = 0;
-                            ai.cache_hits = 0;
-                            ai.cache_misses = 0;
-                            app->cccam.ecmCacheHits = 0;
-                            app->log.add("[AI] Stats cleared");
-                        }
-                        ImGui::EndTabItem();
-                    }
-                    
-                    // ── TAB 2: CAIDs ──
-                    if (ImGui::BeginTabItem("CAIDs")) {
-                        aiTab = 1;
-                        auto caids = ai.getCaidList();
-                        if (ImGui::BeginTable("##caidTable", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY)) {
-                            ImGui::TableSetupScrollFreeze(0, 1);
-                            ImGui::TableSetupColumn("CAID", ImGuiTableColumnFlags_WidthFixed, 50*dpi);
-                            ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
-                            ImGui::TableSetupColumn("ECMs", ImGuiTableColumnFlags_WidthFixed, 50*dpi);
-                            ImGui::TableSetupColumn("OK", ImGuiTableColumnFlags_WidthFixed, 40*dpi);
-                            ImGui::TableSetupColumn("Rate", ImGuiTableColumnFlags_WidthFixed, 50*dpi);
-                            ImGui::TableHeadersRow();
-                            
-                            for (auto& ci : caids) {
-                                ImGui::TableNextRow();
-                                ImGui::TableSetColumnIndex(0);
-                                ImGui::Text("%04X", ci.caid);
-                                ImGui::TableSetColumnIndex(1);
-                                ImGui::TextDisabled("%s", ci.name.c_str());
-                                ImGui::TableSetColumnIndex(2);
-                                ImGui::Text("%d", ci.ecm_count);
-                                ImGui::TableSetColumnIndex(3);
-                                ImGui::Text("%d", ci.success_count);
-                                ImGui::TableSetColumnIndex(4);
-                                float rate = ci.ecm_count > 0 ? (float)ci.success_count / ci.ecm_count * 100 : 0;
-                                ImGui::TextColored(rate > 80 ? ImVec4{0.3f,0.9f,0.4f,1} : 
-                                                   rate > 50 ? ImVec4{0.9f,0.8f,0.2f,1} : 
-                                                               ImVec4{0.9f,0.3f,0.3f,1},
-                                                   "%.0f%%", rate);
-                            }
-                            ImGui::EndTable();
-                        }
-                        if (caids.empty()) {
-                            ImGui::TextDisabled("No CAIDs detected yet. Watch encrypted channels to learn.");
-                        }
-                        ImGui::EndTabItem();
-                    }
-                    
-                    // ── TAB 3: AI REPORT ──
-                    if (ImGui::BeginTabItem("AI Report")) {
-                        aiTab = 2;
-                        std::string report = ai.getOllamaReport();
-                        time_t repTime = ai.getOllamaReportTime();
-                        if (!report.empty()) {
-                            char tBuf[64] = {};
-                            struct tm* tm = localtime(&repTime);
-                            if (tm) strftime(tBuf, sizeof(tBuf), "%H:%M:%S", tm);
-                            ImGui::TextColored({0.6f,0.85f,1.0f,1}, "Last analysis: %s", tBuf);
-                            ImGui::Separator();
-                            if (ImGui::BeginChild("##report", {0, ImGui::GetContentRegionAvail().y - 30*dpi}, true)) {
-                                // Render each line with color coding
-                                std::istringstream ss(report);
-                                std::string line;
-                                while (std::getline(ss, line)) {
-                                    if (line.substr(0, std::min((int)line.size(), 5)) == "RANK:") {
-                                        ImGui::TextColored({0.3f,0.9f,0.4f,1}, "%s", line.c_str());
-                                    } else if (line.substr(0, std::min((int)line.size(), 6)) == "ISSUE:") {
-                                        ImGui::TextColored({0.9f,0.6f,0.2f,1}, "%s", line.c_str());
-                                    } else if (line.substr(0, std::min((int)line.size(), 5)) == "BEST:") {
-                                        ImGui::TextColored({0.5f,0.8f,1.0f,1}, "%s", line.c_str());
-                                    } else if (line.substr(0, std::min((int)line.size(), 8)) == "SUMMARY:") {
-                                        ImGui::TextColored({1.0f,0.9f,0.5f,1}, "%s", line.c_str());
-                                    } else if (!line.empty()) {
-                                        ImGui::TextDisabled("%s", line.c_str());
-                                    }
-                                }
-                            }
-                            ImGui::EndChild();
-                        } else {
-                            ImGui::Spacing();
-                            if (aiStats.ollama_ok) {
-                                ImGui::TextDisabled("Analysis pending...");
-                                ImGui::TextDisabled("(runs every 60s when data is available)");
-                            } else {
-                                ImGui::TextColored({0.9f,0.3f,0.3f,1}, "Ollama not available");
-                                ImGui::TextDisabled("Start Ollama with: ollama serve");
-                                ImGui::TextDisabled("Model: %s", ai.model.c_str());
-                            }
-                        }
-                        ImGui::Separator();
-                        if (ImGui::Button("Analyze Now", {120*dpi, 24*dpi})) {
-                            ai.triggerAnalysis();
-                            app->log.add("[AI] Analysis triggered");
-                        }
-                        ImGui::SameLine(0,4);
-                        if (ImGui::Button("Check Ollama##rep", {120*dpi, 24*dpi})) {
-                            std::thread([&ai]() { ai.checkOllama(); }).detach();
-                        }
-                        ImGui::EndTabItem();
-                    }
-
-                    // ── TAB 4: SERVERS ──
-                    if (ImGui::BeginTabItem("Servers")) {
-                        aiTab = 3;
-                        auto servers = ai.getServerList();
-                        if (ImGui::BeginTable("##srvTable", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY)) {
-                            ImGui::TableSetupScrollFreeze(0, 1);
-                            ImGui::TableSetupColumn("Server", ImGuiTableColumnFlags_WidthStretch);
-                            ImGui::TableSetupColumn("Reqs", ImGuiTableColumnFlags_WidthFixed, 45*dpi);
-                            ImGui::TableSetupColumn("OK", ImGuiTableColumnFlags_WidthFixed, 40*dpi);
-                            ImGui::TableSetupColumn("Rate", ImGuiTableColumnFlags_WidthFixed, 50*dpi);
-                            ImGui::TableSetupColumn("Lat", ImGuiTableColumnFlags_WidthFixed, 50*dpi);
-                            ImGui::TableHeadersRow();
-                            
-                            for (auto& [name, sq] : servers) {
-                                ImGui::TableNextRow();
-                                ImGui::TableSetColumnIndex(0);
-                                ImGui::Text("%s", name.c_str());
-                                ImGui::TableSetColumnIndex(1);
-                                ImGui::Text("%d", sq.total_requests);
-                                ImGui::TableSetColumnIndex(2);
-                                ImGui::Text("%d", sq.successful);
-                                ImGui::TableSetColumnIndex(3);
-                                ImGui::TextColored(sq.success_rate > 0.8f ? ImVec4{0.3f,0.9f,0.4f,1} : 
-                                                   sq.success_rate > 0.5f ? ImVec4{0.9f,0.8f,0.2f,1} : 
-                                                                            ImVec4{0.9f,0.3f,0.3f,1},
-                                                   "%.0f%%", sq.success_rate * 100);
-                                ImGui::TableSetColumnIndex(4);
-                                ImGui::TextDisabled("%.0fms", sq.avg_latency_ms);
-                            }
-                            ImGui::EndTable();
-                        }
-                        if (servers.empty()) {
-                            ImGui::TextDisabled("No server data yet. Connect to CCcam servers to learn.");
-                        }
-                        ImGui::EndTabItem();
-                    }
-                    ImGui::EndTabBar();
-                    (void)aiTab;
-                }
-            }
-            ImGui::End();
-        }
-
-        // ════════════════════════════════════════════════════════════════
-        // STB INFO — uses safe snapshot, NO direct state() access
-        // ════════════════════════════════════════════════════════════════
-        if (app->showStbInfo) {
-            ImGui::SetNextWindowSize({420*dpi, 340*dpi}, ImGuiCond_FirstUseEver);
-            if (ImGui::Begin("STB Info - MediaStar 4030 4K", &app->showStbInfo)) {
+        if (app->mainTab == 2) {
+            ImGui::SetNextWindowPos({OX+P, OY+P+CONN_H+P});
+            ImGui::SetNextWindowSize({LW, CH_H});
+            if (ImGui::Begin("##stbinfo_docked", nullptr,
+                ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) {
                 auto si = app->snapStbInfo(); // SAFE copy
                 auto row = [&](const char* k, const std::string& v) {
                     ImGui::TextDisabled("%s", k);
@@ -2601,16 +3462,24 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
 
                     // ── Tab 1: Device Info ──
                     if (ImGui::BeginTabItem("Device")) {
-                        row("Model:",       si.stb_model);
-                        row("SW Version:",  si.sw_version);
-                        row("STB Time:",    si.stb_time);
-                        row("TV Channels:", std::to_string(si.channel_count));
-                        row("Radio:",       std::to_string(si.radio_count));
-                        if (si.has_login) {
-                            row("Platform ID:", std::to_string(si.platform_id));
-                            row("4K Support:",  si.is_4k ? "Yes" : "Unknown");
-                            row("SAT Enable:",  std::to_string(si.sat_enable));
-                            row("Protocol:",    si.uses_json ? "JSON" : "XML");
+                        if (ImGui::BeginTable("##stbdev", 2, ImGuiTableFlags_SizingFixedFit)) {
+                            auto kv = [&](const char* k, const std::string& v) {
+                                ImGui::TableNextRow();
+                                ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", k);
+                                ImGui::TableSetColumnIndex(1); ImGui::Text("%s", v.empty() ? "(unknown)" : v.c_str());
+                            };
+                            kv("Model",       si.stb_model);
+                            kv("SW Version",  si.sw_version);
+                            kv("STB Time",    si.stb_time);
+                            kv("TV Channels", std::to_string(si.channel_count));
+                            kv("Radio",       std::to_string(si.radio_count));
+                            if (si.has_login) {
+                                kv("Platform ID", std::to_string(si.platform_id));
+                                kv("4K Support",  si.is_4k ? "Yes" : "Unknown");
+                                kv("SAT Enable",  std::to_string(si.sat_enable));
+                                kv("Protocol",    si.uses_json ? "JSON" : "XML");
+                            }
+                            ImGui::EndTable();
                         }
                         ImGui::Separator();
                         float bw = (ImGui::GetContentRegionAvail().x - 8) / 2.0f;
@@ -2675,6 +3544,69 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                         ImGui::Text("  0xCE (206)       Tandberg CAS");
                         ImGui::Separator();
                         ImGui::TextDisabled("OSD String resources include: Teletext (ttx)");
+
+                        if (ImGui::CollapsingHeader("Offline Container Analyzer (static scan)##fw")) {
+                            static bool fwInit = false;
+                            static char fwPath[512] = {};
+                            static std::atomic<bool> fwRunning{false};
+                            static bool fwHasReport = false;
+                            static FwContainerReport_ fwRep;
+                            static std::mutex fwMu;
+                            if (!fwInit) {
+                                fwInit = true;
+                                std::string def = exeDir_() + "MAIN_PAYLOAD_4MB_0004012E.bin";
+                                snprintf(fwPath, sizeof(fwPath), "%s", def.c_str());
+                            }
+
+                            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 90*dpi);
+                            ImGui::InputText("##fwPath", fwPath, sizeof(fwPath));
+                            ImGui::SameLine(0, 6);
+                            if (ImGui::Button("Analyze##fw", {80*dpi, 0}) && !fwRunning.load()) {
+                                fwRunning = true;
+                                fwHasReport = false;
+                                std::string pathCopy = fwPath;
+                                std::thread([pathCopy]() {
+                                    auto rep = analyzeFwContainer_(pathCopy.c_str());
+                                    {
+                                        std::lock_guard<std::mutex> g(fwMu);
+                                        fwRep = rep;
+                                        fwHasReport = true;
+                                    }
+                                    fwRunning = false;
+                                }).detach();
+                            }
+
+                            if (fwRunning.load()) {
+                                ImGui::TextDisabled("Analyzing...");
+                            } else if (fwHasReport) {
+                                FwContainerReport_ rep;
+                                {
+                                    std::lock_guard<std::mutex> g(fwMu);
+                                    rep = fwRep;
+                                }
+                                if (!rep.ok) {
+                                    ImGui::TextColored({0.95f,0.42f,0.38f,1.0f}, "Analyze failed: %s", rep.err.c_str());
+                                } else {
+                                    ImGui::Text("File: %s", rep.path.c_str());
+                                    ImGui::TextDisabled("Size: %zu bytes", rep.size);
+                                    ImGui::TextDisabled("Magic (BE): 0x%08X", rep.magic_be);
+                                    ImGui::TextDisabled("Markers: AA41ADA3=%s  A3AD41AA=%s",
+                                        rep.has_marker_aa41ada3 ? "yes" : "no",
+                                        rep.has_marker_a3ad41aa ? "yes" : "no");
+                                    ImGui::Separator();
+                                    ImGui::TextDisabled("Entropy: global=%.4f  64KB min/max=%.4f/%.4f",
+                                        rep.entropy_global, rep.entropy_min_64k, rep.entropy_max_64k);
+                                    ImGui::TextDisabled("zlib headers: %d  inflate-probe OK: %d",
+                                        rep.zlib_header_candidates, rep.zlib_inflate_ok);
+                                    ImGui::TextDisabled("JFFS2 magic hits: %d  valid hdr_crc: %d",
+                                        rep.jffs2_magic_hits, rep.jffs2_valid_hdr_crc);
+                                    ImGui::TextDisabled("DER seq hits: %d  plausible TLV: %d",
+                                        rep.der_seq_hits, rep.der_plausible);
+                                }
+                            } else {
+                                ImGui::TextDisabled("Set a file path and click Analyze. This is a safe static scan.");
+                            }
+                        }
                         ImGui::EndTabItem();
                     }
 
@@ -2901,7 +3833,7 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
         // ── Render ──────────────────────────────────────────────────────
         try {
             ImGui::Render();
-            const float clr[4] = {0.024f, 0.030f, 0.050f, 1.0f};
+            const float clr[4] = {0.067f, 0.067f, 0.106f, 1.0f};
             g_ctx->OMSetRenderTargets(1, &g_rtv, nullptr);
             g_ctx->ClearRenderTargetView(g_rtv, clr);
             ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());

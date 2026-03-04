@@ -18,6 +18,7 @@
 #include <functional>
 #include <chrono>
 #include <numeric>
+#include <cmath>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -64,6 +65,160 @@ struct CaidInfo {
     int ecm_count = 0;
     int success_count = 0;
     time_t last_seen = 0;
+};
+
+// Per-channel ECM analytics (keyed by CAID+SID)
+struct ChannelStats {
+    static constexpr float kSuccessPrior = 1.0f;
+    static constexpr float kLatencyEmaAlpha = 0.15f;
+    static constexpr int kBestServerMinSamples = 5;
+    static constexpr float kWilsonZ = 1.0f;
+    static constexpr float kRotationMinSec = 2.0f;
+    static constexpr float kRotationMaxSec = 180.0f;
+    static constexpr float kRotationEmaAlpha = 0.20f;
+    static constexpr float kRotationJitterEmaAlpha = 0.15f;
+    static constexpr int kXorStableRepeats = 3;
+
+    uint16_t caid = 0;
+    uint16_t sid = 0;
+    uint32_t provid = 0;
+    int ecm_total = 0;
+    int ecm_ok = 0;
+    int ecm_fail = 0;
+    float success_rate = 0;
+    float success_rate_raw = 0;
+    float avg_latency_ms = 0;
+    time_t first_seen = 0;
+    time_t last_seen = 0;
+    std::string best_server;         // server with best success rate for this channel
+
+    // CW rotation tracking
+    std::array<uint8_t, 16> last_cw{};
+    std::array<uint8_t, 16> prev_cw{};
+    time_t last_cw_change = 0;       // when CW last changed
+    time_t prev_cw_change = 0;       // when CW changed before that
+    int cw_changes = 0;              // total CW rotations observed
+    float avg_rotation_sec = 0;      // average CW rotation period (seconds)
+    float min_rotation_sec = 999999; // shortest observed rotation
+    float max_rotation_sec = 0;      // longest observed rotation
+    int rotation_samples = 0;
+    float rotation_jitter_sec = 0;
+
+    // XOR-delta analysis: track XOR between consecutive CWs
+    std::array<uint8_t, 16> last_xor_delta{};  // last_cw XOR prev_cw
+    int xor_pattern_repeats = 0;    // how many times same XOR-delta repeated
+    bool xor_stable = false;         // true if XOR-delta is consistent (possible linear key schedule)
+    float xor_stability = 0;
+
+    // ECM table_id parity tracking
+    int even_ecm_count = 0;   // table_id 0x80
+    int odd_ecm_count = 0;    // table_id 0x81
+    uint8_t last_table_id = 0;
+
+    // Per-server success map (server_label -> {ok, fail})
+    struct SrvHit { int ok = 0; int fail = 0; };
+    std::unordered_map<std::string, SrvHit> server_hits;
+
+    void update(bool success, float latMs, const std::string& server, const uint8_t* cw,
+                uint8_t tableId) {
+        ecm_total++;
+        if (success) ecm_ok++; else ecm_fail++;
+        success_rate_raw = ecm_total > 0 ? (float)ecm_ok / ecm_total : 0;
+        success_rate = (ecm_total > 0)
+            ? (float)(ecm_ok + kSuccessPrior) / (float)(ecm_total + 2.0f * kSuccessPrior)
+            : 0.0f;
+
+        if (latMs >= 0) {
+            if (avg_latency_ms <= 0)
+                avg_latency_ms = latMs;
+            else
+                avg_latency_ms = avg_latency_ms + kLatencyEmaAlpha * (latMs - avg_latency_ms);
+        }
+
+        time_t now = time(nullptr);
+        if (first_seen == 0) first_seen = now;
+        last_seen = now;
+        last_table_id = tableId;
+        if (tableId == 0x80) even_ecm_count++;
+        else if (tableId == 0x81) odd_ecm_count++;
+
+        // Server tracking
+        auto& sh = server_hits[server];
+        if (success) sh.ok++; else sh.fail++;
+
+        // Find best server
+        float bestScore = -1e9f;
+        for (auto& [lbl, h] : server_hits) {
+            int tot = h.ok + h.fail;
+            if (tot < kBestServerMinSamples) continue;
+            float n = (float)tot;
+            float phat = (float)(h.ok + kSuccessPrior) / (n + 2.0f * kSuccessPrior);
+            float denom = 1.0f + (kWilsonZ * kWilsonZ) / n;
+            float center = phat + (kWilsonZ * kWilsonZ) / (2.0f * n);
+            float rad = kWilsonZ * std::sqrt((phat * (1.0f - phat) + (kWilsonZ * kWilsonZ) / (4.0f * n)) / n);
+            float lower = (center - rad) / denom;
+            if (lower > bestScore) { bestScore = lower; best_server = lbl; }
+        }
+
+        // CW rotation detection
+        if (success && cw) {
+            bool cwChanged = (memcmp(cw, last_cw.data(), 16) != 0);
+            bool cwNonZero = false;
+            for (int i = 0; i < 16; i++) if (cw[i]) { cwNonZero = true; break; }
+
+            if (cwNonZero && cwChanged) {
+                // Compute XOR-delta
+                std::array<uint8_t, 16> newXor{};
+                bool lastNonZero = false;
+                for (int i = 0; i < 16; i++) {
+                    if (last_cw[i]) lastNonZero = true;
+                    newXor[i] = cw[i] ^ last_cw[i];
+                }
+
+                if (lastNonZero) {
+                    // Check if XOR-delta is same as last time
+                    if (last_xor_delta == newXor)
+                        xor_pattern_repeats++;
+                    else
+                        xor_pattern_repeats = 0;
+                    xor_stable = (xor_pattern_repeats >= kXorStableRepeats);
+                    xor_stability = std::min(1.0f, (float)xor_pattern_repeats / (float)kXorStableRepeats);
+                    last_xor_delta = newXor;
+
+                    // Rotation timing
+                    prev_cw_change = last_cw_change;
+                    last_cw_change = now;
+                    cw_changes++;
+
+                    if (prev_cw_change > 0 && last_cw_change > prev_cw_change) {
+                        float period = (float)(last_cw_change - prev_cw_change);
+                        if (period >= kRotationMinSec && period <= kRotationMaxSec) {
+                            rotation_samples++;
+                            if (rotation_samples == 1 || avg_rotation_sec <= 0) {
+                                avg_rotation_sec = period;
+                                rotation_jitter_sec = 0;
+                            } else {
+                                avg_rotation_sec = avg_rotation_sec + kRotationEmaAlpha * (period - avg_rotation_sec);
+                                float dev = std::fabs(period - avg_rotation_sec);
+                                rotation_jitter_sec = rotation_jitter_sec + kRotationJitterEmaAlpha * (dev - rotation_jitter_sec);
+                            }
+                            if (period < min_rotation_sec) min_rotation_sec = period;
+                            if (period > max_rotation_sec) max_rotation_sec = period;
+                        }
+                    }
+                }
+
+                prev_cw = last_cw;
+                memcpy(last_cw.data(), cw, 16);
+            } else if (cwNonZero && !cwChanged) {
+                // Same CW repeated — not a rotation
+            } else if (cwNonZero) {
+                // First CW for this channel
+                memcpy(last_cw.data(), cw, 16);
+                last_cw_change = now;
+            }
+        }
+    }
 };
 
 // CW Cache entry - keyed by FNV hash of CAID+SID+ECM body
@@ -242,6 +397,19 @@ public:
         if (ci.name.empty()) ci.name = getCaidName(caid);
         
         totalSamples_++;
+        
+        // Auto-save every 50 learns or every 30 seconds
+        learnsSinceSave_++;
+        auto now = std::chrono::steady_clock::now();
+        bool timeTrigger = std::chrono::duration_cast<std::chrono::seconds>(now - lastSave_).count() >= 30;
+        if (learnsSinceSave_ >= 50 || timeTrigger) {
+            learnsSinceSave_ = 0;
+            lastSave_ = now;
+            // Save in background to avoid blocking ECM processing
+            std::thread([this]() {
+                try { this->save(); } catch (...) {}
+            }).detach();
+        }
     }
 
     // Try to predict CW from learned patterns (fast, no AI call)
@@ -428,7 +596,48 @@ public:
         std::sort(result.begin(), result.end(), [](auto& a, auto& b) { return a.second.success_rate > b.second.success_rate; });
         return result;
     }
-    
+
+    // ── Per-channel ECM analytics ─────────────────────────────────────────────
+    void learnChannel(uint16_t caid, uint16_t sid, uint32_t provid,
+                      bool success, float latencyMs, const std::string& server,
+                      const uint8_t* cw, const uint8_t* ecm, int ecmLen)
+    {
+        uint32_t key = ((uint32_t)caid << 16) | sid;
+        std::lock_guard<std::mutex> g(chMu_);
+        auto& ch = channelStats_[key];
+        ch.caid = caid;
+        ch.sid = sid;
+        ch.provid = provid;
+        uint8_t tableId = (ecm && ecmLen > 0) ? ecm[0] : 0;
+        ch.update(success, latencyMs, server, cw, tableId);
+    }
+
+    // Get channel stats list sorted by ECM count (descending)
+    std::vector<ChannelStats> getChannelStatsList() const {
+        std::lock_guard<std::mutex> g(chMu_);
+        std::vector<ChannelStats> result;
+        result.reserve(channelStats_.size());
+        for (auto& [k, cs] : channelStats_) result.push_back(cs);
+        std::sort(result.begin(), result.end(), [](auto& a, auto& b) {
+            return a.ecm_total > b.ecm_total;
+        });
+        return result;
+    }
+
+    // Get channel stats for a specific CAID+SID
+    ChannelStats getChannelStats(uint16_t caid, uint16_t sid) const {
+        uint32_t key = ((uint32_t)caid << 16) | sid;
+        std::lock_guard<std::mutex> g(chMu_);
+        auto it = channelStats_.find(key);
+        if (it != channelStats_.end()) return it->second;
+        return {};
+    }
+
+    int getChannelCount() const {
+        std::lock_guard<std::mutex> g(chMu_);
+        return (int)channelStats_.size();
+    }
+
     // Get best server for CAID with detailed info
     ServerQuality* getServerForCaid(uint16_t caid) {
         std::lock_guard<std::mutex> g(mu_);
@@ -533,6 +742,12 @@ private:
     std::unordered_map<std::string, ServerQuality> serverQuality_;
     std::unordered_map<uint16_t, CaidInfo> caidInfo_;
     int totalSamples_ = 0;
+    int learnsSinceSave_ = 0;          // auto-save counter
+    std::chrono::steady_clock::time_point lastSave_ = std::chrono::steady_clock::now();
+
+    // Per-channel analytics
+    mutable std::mutex chMu_;
+    std::unordered_map<uint32_t, ChannelStats> channelStats_;  // key = (caid<<16)|sid
 
     // CW Cache
     mutable std::mutex cacheMu_;
@@ -675,8 +890,40 @@ private:
         }
     }
     
-    // Known CAID names database
+    // Known CAID names database (enriched from MS-4030 firmware CA table)
     static std::string getCaidName(uint16_t caid) {
+        // Exact CAID matches (from firmware CA_TABLE analysis)
+        switch (caid) {
+            case 0x0001: case 0x0002: case 0x0003: case 0x0004: case 0x0005:
+                return "Tandberg (SECA)";
+            case 0x000B: case 0x000C: case 0x000D:
+                return "Tandberg (aux)";
+            case 0x0015: case 0x0016:
+                return "Tandberg (0x" + toHex((const uint8_t*)&caid, 2) + ")";
+            case 0x0017:
+                return "GetTV/BetaCrypt";
+            case 0x0083: case 0x0084:
+                return "Tandberg (Bulsat)";
+            case 0x00C9: case 0x00CA: case 0x00CE:
+                return "Tandberg (regional)";
+            case 0x03E8: case 0x03E9: case 0x03EA: case 0x03EB: case 0x03EC: case 0x03ED:
+                return "Tandberg (shared key)";
+            case 0x04FE:
+                return "Tandberg (0x04FE)";
+        }
+        // Range-based Tandberg IDs from firmware
+        if (caid >= 0x0691 && caid <= 0x06CE) return "Tandberg (06xx)";
+        if (caid >= 0x0A26 && caid <= 0x0A26) return "Tandberg (0A26)";
+        if (caid >= 0x1600 && caid <= 0x16E5) return "Tandberg (16xx)";
+        if (caid >= 0x1773 && caid <= 0x1778) return "Tandberg (17xx)";
+        if (caid >= 0x1839 && caid <= 0x183D) return "Tandberg (18xx)";
+        if (caid >= 0x1959 && caid <= 0x1959) return "Tandberg (1959)";
+        if (caid >= 0x1ED5 && caid <= 0x1ED5) return "Tandberg (1ED5)";
+        if (caid >= 0x2140 && caid <= 0x2140) return "Tandberg (2140)";
+        if (caid >= 0x2249 && caid <= 0x224A) return "Tandberg (22xx)";
+        if (caid >= 0x2705 && caid <= 0x2710) return "Tandberg (27xx)";
+        if (caid >= 0x645A && caid <= 0x645A) return "Tandberg (645A)";
+        // Generic family-based
         switch (caid >> 8) {
             case 0x01: return "SECA/Mediaguard";
             case 0x05: return "Viaccess";
@@ -697,7 +944,8 @@ private:
             default:
                 if (caid >= 0x4AE0 && caid <= 0x4AEF) return "DRE-Crypt";
                 if (caid >= 0x2600 && caid <= 0x2606) return "BISS";
-                return "Unknown (" + std::to_string(caid >> 8) + ")";
+                char buf[32]; snprintf(buf, sizeof(buf), "0x%04X", caid);
+                return std::string("Unknown ") + buf;
         }
     }
 

@@ -49,30 +49,76 @@ No plaintext protocol strings exist in the uncompressed regions — confirming t
 
 ## 3) Key Section Deep-Dives
 
-### 3.1 CA_TABLE — Conditional Access Provider Map (`0x00826A0E`)
+### 3.1 CA_TABLE — Complete Conditional Access Provider Map (`0x00826A0E`)
 
-Record format (28 bytes each):
+Record format (28 bytes each, 78 entries total = 2,184 bytes):
 ```
-[4-byte CA_ID] [7-byte key/hash material] [1-byte type] [14-byte provider name, null-padded] [0xFF terminator]
+[4-byte CA_ID LE] [8-byte key/hash material] [1-byte type flag] [14-byte provider name, null-padded] [0xFF terminator]
 ```
 
-Discovered CA providers:
+#### Full CA_ID Table (78 entries)
 
-| CA_ID (hex) | Provider Name | Notes |
-|---|---|---|
-| 0x01 | Tandberg | Ericsson/Tandberg CAS |
-| 0x02 | Tandberg | |
-| 0x03 | Tandberg | |
-| 0x04 | Tandberg | |
-| 0x05 | Tandberg | |
-| 0x15 (21) | Tandberg | |
-| 0x16 (22) | Tandberg | (2 entries) |
-| 0x17 (23) | **GetTV** | Middle-East satellite TV CA |
-| 0xCE (206) | Tandberg | |
+| CA_ID | Key Material | Provider | Group |
+|-------|-------------|----------|-------|
+| 0x0001 | `5FDB06AA1364E500` | Tandberg | SECA base (1-5) |
+| 0x0002 | `CA138BF89FBE0E00` | Tandberg | |
+| 0x0003 | `52614F2CB05D3801` | Tandberg | |
+| 0x0004 | `345E9B5B97D5BC01` | Tandberg | |
+| 0x0005 | `9EFB52CDD0FBA101` | Tandberg | |
+| 0x000B | `8913EDA56DE5BC00` | Tandberg | Aux (0B-0D) |
+| 0x000C | `E326D5546DD03E00` | Tandberg | |
+| 0x000D | `B7A28B41A38C9500` | Tandberg | |
+| 0x0015 | `0517DC6537166F00` | Tandberg | Extended (15-16) |
+| 0x0016 | `4A2FD304753D8C00` | Tandberg | (2 entries) |
+| 0x0016 | `235751D97F32C201` | Tandberg | |
+| **0x0017** | `5B70F00700000000` | **GetTV** | **Middle-East CA** |
+| 0x0083 | `4DB639DF3C4A2D00` | Tandberg | Bulsat (83-84) |
+| 0x0084 | `EDB30CBA1EFB0500` | Tandberg | |
+| 0x00C9 | `D097A72F1E367A00` | Tandberg | Regional (C9-CE) |
+| 0x00CA | `3775D9D2D8E04400` | Tandberg | |
+| **0x00CE** | `8C235D3E1A97EC01` | **103W-4120-H** | **Satellite-specific** |
+| 0x03E8-0x03ED | `8BAD71EFB7A83C00` | Tandberg | **Shared key group** (6 entries, same key!) |
+| 0x04FE | `8E75452BFEBF3F00` | Tandberg | Standalone |
+| 0x0691-0x06CE | *(varies)* | Tandberg | 06xx range (15 entries) |
+| 0x0A26 | `B7D9C24C62827700` | Tandberg | Standalone |
+| 0x1600-0x16E5 | *(varies)* | Tandberg | 16xx range (13 entries) |
+| 0x1773-0x1778 | *(varies)* | Tandberg | 17xx range (4 entries) |
+| 0x1839-0x183D | *(varies)* | Tandberg | 18xx range (5 entries) |
+| 0x1959 | `405E18941A49DA00` | Tandberg | Standalone |
+| 0x1ED5 | `67A8578D03D5C400` | Tandberg | Standalone |
+| 0x2140 | `0660C5AFE5251800` | Tandberg | Standalone |
+| 0x2249-0x224A | *(varies)* | Tandberg | 22xx range |
+| 0x2705-0x2710 | *(varies)* | Tandberg | 27xx range (4 entries) |
+| 0x645A | `8CEB764A5D586B00` | Tandberg | Standalone (highest ID) |
 
-**Implication:** The STB's primary CA system is **Tandberg/Ericsson CAS** with secondary support for **GetTV**. The 7-byte key material in each record is likely the ECMID hash or initial vector used for CW derivation. This directly affects CCcam ECM routing in our project.
+#### Key Findings
 
-**Code action:** In `cccam_server.h`, ECM provider detection can cross-reference this CA_ID table to route ECMs to the correct upstream. GetTV (ID 0x17) ECMs may need different handling.
+1. **Shared key group (0x03E8-0x03ED):** 6 consecutive CA_IDs all share identical key material `8BAD71EFB7A83C00`. This suggests a multi-service package using a single decryption key.
+
+2. **GetTV (0x0017):** Only non-Tandberg provider. Key material has 4 trailing zero bytes, suggesting a shorter effective key. Middle-East satellite TV conditional access.
+
+3. **103W-4120-H (0x00CE):** The only entry with a satellite position in the name field instead of "Tandberg" — likely refers to a specific transponder at 103°W, frequency 4120 MHz, horizontal polarization.
+
+4. **Duplicate CA_ID 0x0016:** Two entries with different key material — possibly representing key rotation or alternative decryption paths.
+
+5. **Type flag:** Always `0x01` except entry at 0x270D which has flag `0x10` — possibly a key version or priority indicator.
+
+**Code integration (completed):** The enriched CAID database has been integrated into `cw_predictor.h::getCaidName()` with all 78 entries mapped to descriptive names.
+
+### 3.1b DATA_108b — CA Package Quick-Lookup (`0x00826222`)
+
+108 bytes containing exactly 2 CA package entries:
+
+| Offset | Key Material | Provider Name |
+|--------|-------------|---------------|
+| 0x00 | `35F6B9217C2BA83F...` | **Ant-1 Euro** |
+| 0x44 | `AE652B210BF89FC6...` | **Bulsat ECM-IV** |
+
+These appear to be pre-configured CA packages for Greek (Ant-1 = ANT1 Europe) and Bulgarian (Bulsat) satellite services.
+
+### 3.1c DATA_26KB — CA Service Package Database (`0x0081F1A3`)
+
+25 KB binary structure. First entry: `WBBC Package` (likely BBC World). Contains ~500 binary records that appear to map service IDs to CA package configurations. The `bin9gosI` pattern repeating at regular intervals suggests a fixed-size record structure with embedded checksums.
 
 ### 3.2 DATA_14KB — Embedded Satellite Transponder Database (`0x0081B002`)
 
@@ -185,20 +231,69 @@ New floating window (`showRemote`) with: navigation cross, CH/VOL/MUTE, color ke
 
 ---
 
-## 6) Stability Recommendations (Pending)
+## 6) Stability Recommendations
 
-### 6.1 Reconnect — Exponential Backoff
-Current reconnect uses linear delay. Should use: `delay = min(base * 2^attempt, max_delay)`.
+### 6.1 Reconnect — Exponential Backoff ✅ DONE
+Implemented in `stb_client.cpp::doReconnect()`: `delay = min(BASE * 2^attempt, 30s cap)`.
 
-### 6.2 Keepalive Heartbeat
-Send `GMS_MSG_REQUEST_SOCKET_KEEP_ALIVE` (ID 26) every 30s when connected-but-idle. If no response in 10s, trigger reconnect.
+### 6.2 Keepalive Heartbeat ✅ DONE
+Sends `GMS_MSG_REQUEST_SOCKET_KEEP_ALIVE` (ID 26) every 30s when connected and idle > 28s.
 
-### 6.3 Command Audit Log
-For diagnosing intermittent failures, log: `{timestamp, cmd_id, payload_summary, tcp_ok, latency_ms}` to a rolling 200-entry deque.
+### 6.3 Command Audit Log ✅ DONE
+Rolling 200-entry `cmd_audit_` deque with `{timestamp_ms, cmd_id, tcp_ok, latency_ms}`. Visible in STB Info > Cmd Audit tab.
+
+### 6.4 Auto-Reconnect Upstream CCcam Servers ✅ DONE
+Every 30s during ECM loop, disconnected upstreams are automatically reconnected via `connectUpstream()`.
 
 ---
 
-## 7) Source Files Reference
+## 7) ECM Analytics Engine (NEW — Session 10)
+
+### 7.1 Per-Channel ECM Tracking (`ChannelStats` in `cw_predictor.h`)
+Each unique CAID+SID combination is tracked with:
+- **ECM counters:** total, ok, fail, success rate
+- **Latency:** running average per channel
+- **CW rotation detection:** timestamps of CW changes, average/min/max rotation period
+- **XOR-delta analysis:** tracks XOR between consecutive CWs; detects linear key schedules
+- **ECM parity tracking:** counts even (0x80) vs odd (0x81) table_id ECMs
+- **Per-server success map:** which upstream server works best for each channel
+
+### 7.2 XOR-Delta Analysis (Analytics-only)
+The XOR-delta signal is tracked **for analytics only** (stability / repeats / anomaly detection).
+
+> Note: Any CW prediction-style helper (e.g. `predictXorDelta()`) has been removed/disabled in the project to keep the tooling strictly observational and avoid bypass-style behavior.
+
+### 7.3 Enriched CAID Database
+`getCaidName()` now contains all 78 CA_IDs from firmware analysis, organized by:
+- Exact matches for known Tandberg sub-IDs (SECA, Bulsat, regional, shared-key)
+- GetTV/BetaCrypt (0x0017)
+- Range-based lookups for Tandberg 06xx, 16xx, 17xx, 18xx, 22xx, 27xx series
+- Generic family-based fallback for standard CAS providers
+
+### 7.4 UI: Channel Analytics Dashboard
+New "Channels" sub-tab in AI Engine showing 9-column table:
+`CAID | SID | ECMs | Rate | Latency | CW Rotation | XOR Stable | Parity | Best Server`
+
+With tooltips showing detailed rotation timing and color-coded success rates.
+
+---
+
+## 7.5 MAIN_PAYLOAD Container Notes (Static)
+
+`MAIN_PAYLOAD_4MB_0004012E.bin` begins with:
+- Magic: `0x87654321`
+- Markers: `AA 41 AD A3` and `A3 AD 41 AA`
+
+Static properties:
+- **Very high entropy (~8.0 bits/byte)** across almost all blocks.
+- Apparent `JFFS2` and `zlib` signature hits do **not** validate as real filesystem/deflate streams (CRC/header/deflate sanity checks fail), indicating **false positives inside high-entropy data**.
+- Multiple DER-like `0x30 0x82/0x81` sequences are present, but no standard CMS/PKCS#7 OID markers were found; treated as **non-authoritative** without further validation.
+
+Conclusion: MAIN_PAYLOAD is likely a **vendor container with integrity checking and/or encryption/obfuscation**, and cannot be safely unpacked using standard filesystem extractors without vendor-specific tooling/keys.
+
+---
+
+## 8) Source Files Reference
 - `gm_c/include/stb/stb_client.h` — public API
 - `gm_c/src/stb/stb_client.cpp` — implementation
 - `gm_c/include/stb/constants.h` — message IDs
