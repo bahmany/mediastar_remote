@@ -775,6 +775,23 @@ bool STBClient::requestSatelliteList() {
     return internalSendCommand(constants::GMS_MSG_REQUEST_SAT_LIST, {});
 }
 
+bool STBClient::requestTransponderList() {
+    return internalSendCommand(constants::GMS_MSG_REQUEST_TP_LIST, {});
+}
+
+bool STBClient::sat2ipChannelPlay(const std::string& program_id, int tv_state) {
+    std::vector<std::map<std::string, protocol::ParamValue>> params;
+    std::map<std::string, protocol::ParamValue> param;
+    param["TvState"] = std::to_string(tv_state);
+    param["ProgramId"] = program_id;
+    params.push_back(param);
+    return internalSendCommand(constants::GMS_MSG_DO_SAT2IP_CHANNEL_PLAY, params);
+}
+
+bool STBClient::sat2ipStop() {
+    return internalSendCommand(constants::GMS_MSG_DO_SAT2IP_PLAY_STOP, {});
+}
+
 bool STBClient::sendKeepAlive() {
     return internalSendCommand(constants::GMS_MSG_REQUEST_SOCKET_KEEP_ALIVE, {});
 }

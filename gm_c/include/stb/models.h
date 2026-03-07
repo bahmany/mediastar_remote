@@ -203,6 +203,15 @@ struct FavoriteChannel {
     time_t added_time = 0;
 };
 
+struct Transponder {
+    int tp_index = -1;
+    int sat_index = -1;
+    int freq = 0;
+    char pol = 'h';
+    int sym_rate = 0;
+    int fec = 0;
+};
+
 /**
  * @brief STB information structure
  */
@@ -235,6 +244,7 @@ public:
     // Lists
     std::vector<FavoriteGroup> fav_groups;
     std::vector<Satellite> satellites;
+    std::vector<Transponder> transponders;
     std::vector<EpgEvent> epg_events;
     
     // STB info

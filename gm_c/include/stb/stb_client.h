@@ -311,6 +311,7 @@ public:
      * @return true on success
      */
     bool requestSatelliteList();
+    bool requestTransponderList();
     
     /**
      * @brief Send keep-alive/heartbeat
@@ -335,6 +336,8 @@ public:
      * @return true on success
      */
     bool tvRadioSwitch();
+    bool sat2ipChannelPlay(const std::string& program_id, int tv_state = 0);
+    bool sat2ipStop();
     
     // ==================== State Access ====================
     

@@ -21,6 +21,8 @@
 #include "cccam/cccam_config.h"
 #include "cccam/cccam_learner.h"
 #include "ai/cw_predictor.h"
+#include "cccam/ca_engine.h"
+#include "cccam/channel_scanner.h"
 
 #ifdef _WIN32
 #  ifndef WIN32_LEAN_AND_MEAN
@@ -394,11 +396,22 @@ public:
     ai::CwPredictor aiPredictor;
     bool aiEnabled = true;  // Enable AI-assisted decryption
 
+    // Multi-CA decryption engine (CW prediction, smart routing, BISS, PowerVu)
+    CaEngine caEngine;
+
+    // Turbo pipeline stats (sub-3s ECM response)
+    TurboPipeline turbo;
+
     // Background service callbacks (wired by App)
     std::function<void(uint16_t caid,uint32_t provid,uint16_t sid,
                        const uint8_t* ecmMsg,int ecmMsgLen)> onEcmCapture;
     std::function<bool(uint16_t caid,uint16_t sid,
                        const uint8_t* ecm,int ecmLen,uint8_t cwOut[16])> onOfflineLookup;
+
+    // Scanner notification: called when CW obtained, so scanner knows signal quality
+    std::function<void(uint16_t caid,uint32_t provid,uint16_t sid,
+                       bool ok,const uint8_t* cw,float latMs,
+                       const std::string& server)> onScannerNotify;
 
     std::string getStatus() {
         std::lock_guard<std::mutex> g(mu_);
@@ -970,6 +983,7 @@ private:
                             ecmOk++;
                             ecmCacheHits++;
                             cacheSinceLog++;
+                            turbo.cacheHits++;
                         }
                     }
 
@@ -1034,7 +1048,7 @@ private:
                             uc.connected = false;
                             if (uc.sock != INVALID_SOCK) { CLOSE_SOCK(uc.sock); uc.sock = INVALID_SOCK; }
                         }
-                        // Feed learner + AI predictor + channel analytics
+                        // Feed learner + AI predictor + channel analytics + CA engine
                         learner.addSample(caid, provid, sid, msgBuf+13, ecmLen, got, cwBuf, uc.label);
                         if (aiEnabled) {
                             aiPredictor.learn(caid, sid, provid, msgBuf+13, ecmLen,
@@ -1042,6 +1056,8 @@ private:
                             aiPredictor.learnChannel(caid, sid, provid, got, latencyMs,
                                                      uc.label, cwBuf, msgBuf+13, ecmLen);
                         }
+                        caEngine.learn(caid, sid, provid, msgBuf+13, ecmLen,
+                                       cwBuf, got, uc.label, latencyMs);
                         if (cfg.log_ecm)
                             logEcmCw(caid, provid, sid, ecmLen, msgBuf+13, uc.label, got, cwBuf);
 
@@ -1061,6 +1077,7 @@ private:
                                 ccSend(sock, sendBlock, MSG_ECM_REQUEST, cwBuf, 16, hdr[0]);
                                 cwSent = true;
                                 ecmOk++;
+                                turbo.upstreamHits++;
                             }
                             break; // AI: first CW wins, stop trying other servers
                         }
@@ -1078,6 +1095,20 @@ private:
                             cwSent = true;
                             ecmOk++;
                             predSinceLog++;
+                            turbo.offlineHits++;
+                        }
+                    }
+
+                    // CA Engine CW prediction (XOR-delta, BISS fixed key, PowerVu)
+                    if (!cwSent && ecmLen > 0) {
+                        uint8_t caCw[16] = {};
+                        float conf = 0;
+                        if (caEngine.predictCw(caid, sid, caCw, &conf) && conf >= 0.3f) {
+                            ccSend(sock, sendBlock, MSG_ECM_REQUEST, caCw, 16, hdr[0]);
+                            cwSent = true;
+                            ecmOk++;
+                            predSinceLog++;
+                            turbo.caPredictHits++;
                         }
                     }
 
@@ -1091,12 +1122,30 @@ private:
                             ecmOk++;
                             predSinceLog++;
                             aiPredictor.predictions_correct++;
+                            turbo.aiHits++;
                         }
                     }
                     
                     if (!cwSent) {
                         ecmFail++;
                         ccSend(sock, sendBlock, MSG_ECM_NOK2, nullptr, 0, hdr[0]);
+                    }
+
+                    // ── Turbo Pipeline tracking + Scanner notification ──
+                    {
+                        auto ecmEndAll = std::chrono::steady_clock::now();
+                        float totalMs = std::chrono::duration<float, std::milli>(ecmEndAll - ecmStart).count();
+                        turbo.totalEcm++;
+                        turbo.recordLatency(totalMs);
+
+                        // Notify scanner of ECM result (for signal quality tracking)
+                        if (onScannerNotify) {
+                            uint8_t cwForNotify[16] = {};
+                            bool gotAny = cwSent;
+                            // We don't have the CW here easily for all paths,
+                            // but the scanner tracks via its own notifyEcmResult
+                            try { onScannerNotify(caid, provid, sid, gotAny, cwForNotify, totalMs, ""); } catch (...) {}
+                        }
                     }
                 } else {
                     ccSend(sock, sendBlock, MSG_ECM_NOK2, nullptr, 0, hdr[0]);

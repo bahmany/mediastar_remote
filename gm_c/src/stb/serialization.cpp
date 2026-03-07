@@ -138,6 +138,7 @@ std::string XmlSerializer::serialize(int request_type, const std::vector<std::ma
                 break;
                 
             case constants::GMS_MSG_DO_CHANNEL_SWITCH:
+            case constants::GMS_MSG_DO_SAT2IP_CHANNEL_PLAY:
                 for (const auto& param : params) {
                     oss << "<parm>";
                     auto it_tv = param.find("TvState");
@@ -147,6 +148,16 @@ std::string XmlSerializer::serialize(int request_type, const std::vector<std::ma
                     }
                     if (it_prog != param.end()) {
                         oss << "<ProgramId>" << xmlEscape(std::get<std::string>(it_prog->second)) << "</ProgramId>";
+                    }
+                    if (request_type == constants::GMS_MSG_DO_SAT2IP_CHANNEL_PLAY) {
+                        auto it_rr = param.find("iResolutionRatio");
+                        auto it_br = param.find("iBitrate");
+                        if (it_rr != param.end()) {
+                            oss << "<iResolutionRatio>" << xmlEscape(std::get<std::string>(it_rr->second)) << "</iResolutionRatio>";
+                        }
+                        if (it_br != param.end()) {
+                            oss << "<iBitrate>" << xmlEscape(std::get<std::string>(it_br->second)) << "</iBitrate>";
+                        }
                     }
                     oss << "</parm>";
                 }
@@ -340,6 +351,7 @@ std::string JsonSerializer::serialize(int request_type, const std::vector<std::m
                 break;
                 
             case constants::GMS_MSG_DO_CHANNEL_SWITCH:
+            case constants::GMS_MSG_DO_SAT2IP_CHANNEL_PLAY:
             case constants::GMS_MSG_REQUEST_PROGRAM_EPG:
                 oss << ",\"array\":[";
                 for (size_t i = 0; i < params.size(); ++i) {

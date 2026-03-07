@@ -81,6 +81,8 @@ private:
     void handleChannelList(const std::vector<std::map<std::string, std::string>>& data);
     void handleFavoriteGroups(const std::vector<std::map<std::string, std::string>>& data);
     void handleSatelliteList(const std::vector<std::map<std::string, std::string>>& data);
+    void handleTransponderList(const std::vector<std::map<std::string, std::string>>& data);
+    void handleSat2ipReturn(const std::map<std::string, std::string>& data);
     void handleCurrentChannel(const std::map<std::string, std::string>& data);
     void handleEpgData(const std::vector<std::map<std::string, std::string>>& data);
     void handleStbInfo(const std::map<std::string, std::string>& data);

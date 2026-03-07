@@ -83,6 +83,31 @@ std::vector<std::map<std::string, std::string>> parseObjectsInArray(const std::s
                         if (val_end == std::string::npos) break;
                         val = obj.substr(val_start + 1, val_end - val_start - 1);
                         kv_pos = val_end + 1;
+                    } else if (obj[val_start] == '[' || obj[val_start] == '{') {
+                        // Nested JSON array/object value (e.g. AudioArray/SubtArray)
+                        // Parse until matching closing bracket/brace, handling strings and escapes.
+                        char openC = obj[val_start];
+                        char closeC = (openC == '[') ? ']' : '}';
+                        int depth = 0;
+                        bool inStr2 = false;
+                        size_t i2 = val_start;
+                        for (; i2 < obj.length(); ++i2) {
+                            char c2 = obj[i2];
+                            if (inStr2) {
+                                if (c2 == '\\' && i2 + 1 < obj.length()) { i2++; continue; }
+                                if (c2 == '"') inStr2 = false;
+                                continue;
+                            }
+                            if (c2 == '"') { inStr2 = true; continue; }
+                            if (c2 == openC) depth++;
+                            else if (c2 == closeC) {
+                                depth--;
+                                if (depth == 0) { i2++; break; }
+                            }
+                        }
+                        if (i2 > obj.length()) break;
+                        val = obj.substr(val_start, i2 - val_start);
+                        kv_pos = i2;
                     } else {
                         size_t val_end = obj.find_first_of(",}\r\n", val_start);
                         if (val_end == std::string::npos) val_end = obj.length();
@@ -103,6 +128,26 @@ std::vector<std::map<std::string, std::string>> parseObjectsInArray(const std::s
     }
     
     return result;
+}
+
+std::map<std::string, std::string> parseXmlSimple(const std::string& xml);
+
+std::vector<std::map<std::string, std::string>> parseXmlParmArray(const std::string& xml) {
+    std::vector<std::map<std::string, std::string>> out;
+
+    size_t pos = 0;
+    while ((pos = xml.find("<parm", pos)) != std::string::npos) {
+        size_t tag_end = xml.find('>', pos);
+        if (tag_end == std::string::npos) break;
+        size_t close_pos = xml.find("</parm>", tag_end);
+        if (close_pos == std::string::npos) break;
+
+        std::string inner = xml.substr(tag_end + 1, close_pos - tag_end - 1);
+        auto m = parseXmlSimple(inner);
+        if (!m.empty()) out.push_back(std::move(m));
+        pos = close_pos + 7;
+    }
+    return out;
 }
 
 // Extract array from JSON. If array_key is empty, looks for a bare array.
@@ -258,7 +303,9 @@ bool MessageProcessor::processMessageInner(const protocol::ReceivedMessage& msg)
     constexpr uint32_t CMD_FAV_GROUP_NAMES = 0x0C;
     constexpr uint32_t CMD_CHANNEL_LIST_TYPE = 0x0E;
     constexpr uint32_t CMD_STB_INFO = 0x0F;
+    constexpr uint32_t CMD_SAT2IP_RETURN = 0x10;
     constexpr uint32_t CMD_SAT_LIST = 0x16;
+    constexpr uint32_t CMD_TP_LIST = 0x18;
     constexpr uint32_t CMD_KEEP_ALIVE = 0x1A;
     constexpr uint32_t CMD_CHANNEL_LIST_UPDATE = 0x3F2;  // 1010
     
@@ -278,8 +325,11 @@ bool MessageProcessor::processMessageInner(const protocol::ReceivedMessage& msg)
         if (parsed.empty()) parsed = extractJsonArray(data_str, "parm");
         if (parsed.empty()) parsed = extractJsonArray(data_str, ""); // bare array
         if (parsed.empty()) {
-            auto simple = parseXmlSimple(data_str);
-            if (!simple.empty()) parsed.push_back(simple);
+            parsed = parseXmlParmArray(data_str);
+            if (parsed.empty()) {
+                auto simple = parseXmlSimple(data_str);
+                if (!simple.empty()) parsed.push_back(simple);
+            }
         }
         handleChannelList(parsed);
     } else if (cmd == CMD_FAV_GROUP_NAMES) {
@@ -291,11 +341,35 @@ bool MessageProcessor::processMessageInner(const protocol::ReceivedMessage& msg)
     } else if (cmd == CMD_SAT_LIST || cmd == CMD_NOTIFY_SAT_LIST) {
         auto parsed = extractJsonArray(data_str, "array");
         if (parsed.empty()) parsed = extractJsonArray(data_str, ""); // bare array
+        if (parsed.empty()) parsed = parseXmlParmArray(data_str);
         handleSatelliteList(parsed);
+    } else if (cmd == CMD_TP_LIST) {
+        auto parsed = extractJsonArray(data_str, "array");
+        if (parsed.empty()) parsed = extractJsonArray(data_str, "parm");
+        if (parsed.empty()) parsed = extractJsonArray(data_str, ""); // bare array
+        if (parsed.empty()) {
+            parsed = parseXmlParmArray(data_str);
+            if (parsed.empty()) {
+                auto simple = parseXmlSimple(data_str);
+                if (!simple.empty()) parsed.push_back(simple);
+            }
+        }
+        handleTransponderList(parsed);
     } else if (cmd == CMD_EPG_DATA) {
         auto parsed = extractJsonArray(data_str, "array");
         if (parsed.empty()) parsed = extractJsonArray(data_str, ""); // bare array
         handleEpgData(parsed);
+    } else if (cmd == CMD_SAT2IP_RETURN) {
+        std::map<std::string, std::string> parsed = parseXmlSimple(data_str);
+        if (parsed.empty()) {
+            auto arr = extractJsonArray(data_str, "");
+            if (!arr.empty()) parsed = arr.front();
+        }
+        if (parsed.empty()) {
+            auto arr = parseXmlParmArray(data_str);
+            if (!arr.empty()) parsed = arr.front();
+        }
+        handleSat2ipReturn(parsed);
     } else if (cmd == CMD_CURRENT_CHANNEL) {
         auto parsed = parseXmlSimple(data_str);
         if (parsed.empty()) {
@@ -504,6 +578,63 @@ void MessageProcessor::handleSatelliteList(const std::vector<std::map<std::strin
     }
     
     notify("satellite_list", "");
+}
+
+void MessageProcessor::handleTransponderList(const std::vector<std::map<std::string, std::string>>& data) {
+    state_.transponders.clear();
+
+    auto getIntAny = [&](const std::map<std::string,std::string>& m,
+                         const std::initializer_list<const char*>& keys,
+                         int def = 0) -> int {
+        for (auto* k : keys) {
+            auto it = m.find(k);
+            if (it != m.end()) return parseInt(it->second, def);
+        }
+        return def;
+    };
+
+    for (const auto& item : data) {
+        Transponder tp;
+        tp.tp_index = getIntAny(item, {"TpIndex", "TPIndex"}, -1);
+        tp.sat_index = getIntAny(item, {"SatIndex"}, -1);
+        tp.sym_rate = getIntAny(item, {"SystemRate", "SR"}, 0);
+        tp.fec = getIntAny(item, {"Fec", "FEC"}, 0);
+        tp.freq = getIntAny(item, {"Freq"}, 0);
+
+        int polInt = getIntAny(item, {"Pol", "POL"}, 0);
+        switch (polInt) {
+            case 0: tp.pol = 'h'; break;
+            case 1: tp.pol = 'v'; break;
+            case 2: tp.pol = 'l'; break;
+            case 3: tp.pol = 'r'; break;
+            default: tp.pol = 'h'; break;
+        }
+
+        if (tp.tp_index >= 0 && tp.sat_index >= 0) {
+            state_.transponders.push_back(tp);
+        }
+    }
+
+    notify("transponder_list", "");
+}
+
+void MessageProcessor::handleSat2ipReturn(const std::map<std::string, std::string>& data) {
+    auto itS = data.find("success");
+    auto itU = data.find("url");
+    auto itE = data.find("errormsg");
+
+    std::string out;
+    if (itS != data.end()) out += "success=" + itS->second;
+    if (itU != data.end()) {
+        if (!out.empty()) out += ";";
+        out += "url=" + itU->second;
+    }
+    if (itE != data.end() && !itE->second.empty()) {
+        if (!out.empty()) out += ";";
+        out += "errormsg=" + itE->second;
+    }
+
+    notify("sat2ip_return", out);
 }
 
 void MessageProcessor::handleEpgData(const std::vector<std::map<std::string, std::string>>& data) {

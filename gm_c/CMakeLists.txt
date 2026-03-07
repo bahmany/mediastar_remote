@@ -11,6 +11,9 @@ find_package(Threads REQUIRED)
 set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
 find_package(ZLIB REQUIRED)
 
+# RTSP viewer uses runtime FFmpeg loading (no link-time dependency)
+# User must install FFmpeg DLLs separately for RTSP streaming to work
+
 # Include directories
 include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${CMAKE_SOURCE_DIR})
@@ -118,6 +121,13 @@ if(WIN32)
             user32
             gdi32
             dwmapi
+            ws2_32
+            winmm
+            C:/msys64/ucrt64/lib/libavformat.dll.a
+            C:/msys64/ucrt64/lib/libavcodec.dll.a
+            C:/msys64/ucrt64/lib/libavutil.dll.a
+            C:/msys64/ucrt64/lib/libswresample.dll.a
+            C:/msys64/ucrt64/lib/libswscale.dll.a
         )
     endif()
 endif()

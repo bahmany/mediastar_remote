@@ -16,9 +16,11 @@
 #include <atomic>
 #include <chrono>
 #include <deque>
+#include <exception>
 #include <fstream>
 #include <memory>
 #include <mutex>
+#include <csignal>
 #include <string>
 #include <thread>
 #include <vector>
@@ -39,6 +41,7 @@
 #include "cccam/ecm_services.h"
 #include "cccam/cccam_config.h"
 #include "stb/custom_lists.h"
+#include "stb/rtsp_viewer.h"
 #include <algorithm>
 
 extern IMGUI_IMPL_API LRESULT
@@ -84,6 +87,38 @@ static LONG WINAPI CrashHandler(EXCEPTION_POINTERS* ep) {
     CrashLog("--- end crash ---");
 
     return EXCEPTION_EXECUTE_HANDLER;
+}
+
+static void InstallFatalHandlers_() {
+    try {
+        std::set_terminate([]() {
+            try { CrashLog("FATAL: std::terminate called"); } catch (...) {}
+            TerminateProcess(GetCurrentProcess(), 0xEE);
+        });
+    } catch (...) {}
+    try {
+        std::signal(SIGABRT, [](int) {
+            try { CrashLog("FATAL: SIGABRT"); } catch (...) {}
+            TerminateProcess(GetCurrentProcess(), 0xEA);
+        });
+    } catch (...) {}
+}
+
+static void LogProcessPaths_() {
+    try {
+        char exe[MAX_PATH] = {};
+        DWORD n = GetModuleFileNameA(nullptr, exe, MAX_PATH);
+        if (n > 0 && n < MAX_PATH) {
+            CrashLog((std::string("EXE: ") + exe).c_str());
+        }
+    } catch (...) {}
+    try {
+        char cwd[MAX_PATH] = {};
+        DWORD n = GetCurrentDirectoryA(MAX_PATH, cwd);
+        if (n > 0 && n < MAX_PATH) {
+            CrashLog((std::string("CWD: ") + cwd).c_str());
+        }
+    } catch (...) {}
 }
 
 static double shannonEntropy_(const uint8_t* data, size_t n) {
@@ -456,12 +491,23 @@ struct App {
     cccam::EcmHarvester harvester;
     cccam::OfflineCwDb  offlineCwDb;
     cccam::AiTrainer    aiTrainer;
+    cccam::ChannelScanner scanner;
+    stb::RtspViewer rtspViewer;
+    char rtspUrl[1024] = "rtsp://192.168.1.2:554/";
     Logger log;
     Logger cccamLog;
 
     // Satellites (behind satMu)
     std::mutex satMu;
     std::vector<stb::Satellite> satellites;
+
+    std::mutex tpMu;
+    std::vector<stb::Transponder> transponders;
+
+    std::string rtspProgramId;
+    char liveFilter[128] = {};
+    int  liveSelectedCh = -1;       // index into channels[] for live TV
+    bool liveTuning = false;        // true while STB is tuning (dish may rotate)
 
     // UI state (main thread only)
     char ip[64]      = "192.168.1.2";
@@ -513,6 +559,26 @@ struct App {
                 std::lock_guard<std::mutex> g(chMu);
                 channels = std::move(cached);
                 chLoaded = true;
+
+                // If cache contains truncated AudioArray/SubtArray (older parser bug),
+                // auto-refresh from STB after connecting so apid/pids become correct.
+                int checked = 0, bad = 0;
+                for (const auto& ch : channels) {
+                    if (checked >= 200) break;
+                    checked++;
+                    if (!ch.audio_pids_raw.empty()) {
+                        // Common broken cache signature: "[{" (truncated nested JSON)
+                        if (ch.audio_pids_raw.size() <= 3 && ch.audio_pids_raw.find("[") != std::string::npos) bad++;
+                        else if (ch.audio_pids_raw.find("pid") == std::string::npos &&
+                                 ch.audio_pids_raw.find("PID") == std::string::npos) bad++;
+                    } else {
+                        bad++;
+                    }
+                }
+                if (checked > 0 && bad * 100 / checked >= 80) {
+                    chLoaded = false;
+                    log.add("[cache] Channel cache missing audio PIDs — will refresh from STB");
+                }
                 auto msg = "[cache] Loaded " + std::to_string(channels.size()) + " channels from disk";
                 log.add(msg);
                 CrashLog(msg.c_str());
@@ -545,9 +611,14 @@ struct App {
                         if (client.loginInfo())
                             setModel(client.loginInfo()->modelName());
                     } catch (...) {}
-                    try { client.requestStbInfo(); } catch (...) {}
-                    try { client.requestSatelliteList(); } catch (...) {}
-                    try { client.requestFavGroupNames(); } catch (...) {}
+                    try {
+                        if (!rtspViewer.isRunning()) {
+                            try { client.requestStbInfo(); } catch (...) {}
+                            try { client.requestSatelliteList(); } catch (...) {}
+                            try { client.requestTransponderList(); } catch (...) {}
+                            try { client.requestFavGroupNames(); } catch (...) {}
+                        }
+                    } catch (...) {}
                 }
                 if (s == stb::ConnectionState::Disconnected ||
                     s == stb::ConnectionState::ConnectionFailed)
@@ -579,7 +650,7 @@ struct App {
             }
         });
 
-        client.setNotificationCallback([this](const std::string& ev, const std::string&) {
+        client.setNotificationCallback([this](const std::string& ev, const std::string& data) {
             try {
                 if (down) return;
                 if (ev == "stb_info") {
@@ -612,6 +683,15 @@ struct App {
                     } catch (...) {}
                     crossRefSatellites();
                 }
+                if (ev == "transponder_list") {
+                    try {
+                        std::lock_guard<std::mutex> g(tpMu);
+                        transponders = client.state().transponders;
+                    } catch (...) {}
+                }
+                if (ev == "sat2ip_return") {
+                    log.add("[SAT2IP] return " + data);
+                }
             } catch (const std::exception& e) {
                 CrashLog((std::string("notificationCallback exception: ") + e.what()).c_str());
             } catch (...) {
@@ -623,9 +703,12 @@ struct App {
     ~App() {
         CrashLog("App destructor start");
         down = true;
+        try { rtspViewer.stop(); } catch (...) {}
+        try { scanner.stop(); } catch (...) {}
         try { harvester.stop(); } catch (...) {}
         try { aiTrainer.stop(); } catch (...) {}
         try { offlineCwDb.save(); } catch (...) {}
+        try { cccam.caEngine.save(); } catch (...) {}
         try { cccam.stop(); } catch (...) {}
         try { client.disconnect(); } catch (...) {}
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
@@ -766,6 +849,8 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
     // Install crash handler FIRST
     SetUnhandledExceptionFilter(CrashHandler);
     CrashLog("=== GMScreen starting ===");
+    InstallFatalHandlers_();
+    LogProcessPaths_();
 
     SetProcessDPIAware();
 
@@ -832,6 +917,11 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
     app->log.add("GMScreen started - MediaStar 4030 4K");
     app->loadCachedChannels();  // Load persistent cache from disk
     app->customLists.load();    // Load custom channel lists
+    
+    // Initialize RTSP viewer with D3D11 device
+    if (!app->rtspViewer.init(g_dev, g_ctx)) {
+        CrashLog("RTSP viewer init failed (D3D11)");
+    }
 
     // ── Load CCcam config from disk ──
     {
@@ -878,8 +968,12 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
 
     // ── Wire & start background services ──
     try {
-        // Load offline CW database
+        // Load offline CW database + CA engine
         app->offlineCwDb.load();
+        app->cccam.caEngine.load();
+        app->cccam.caEngine.onLog = [&app](const std::string& msg) {
+            try { if (app && !app->down) app->cccamLog.add(msg); } catch (...) {}
+        };
 
         // Wire ECM capture: feed harvester targets from live STB traffic
         app->cccam.onEcmCapture = [&app](uint16_t caid, uint32_t provid, uint16_t sid,
@@ -904,6 +998,7 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                 if (ok && ecm && ecmLen > 0) {
                     app->cccam.learner.addSample(caid, provid, sid, ecm, ecmLen, ok, cw, srv);
                     app->cccam.aiPredictor.learn(caid, sid, provid, ecm, ecmLen, cw, ok, srv, lat);
+                    app->cccam.caEngine.learn(caid, sid, provid, ecm, ecmLen, cw, ok, srv, lat);
                     app->offlineCwDb.store(caid, sid, provid, ecm, ecmLen, cw, srv);
                 }
             } catch (...) {}
@@ -919,7 +1014,48 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
         app->aiTrainer.offlineDb = &app->offlineCwDb;
         app->aiTrainer.start();
 
-        CrashLog("Background services started (harvester + trainer + offline DB)");
+        // ── Channel Scanner: auto-scan encrypted channels, collect samples ──
+        app->scanner.onLog = [&app](const std::string& msg) {
+            try { if (app && !app->down) app->log.add(msg); } catch (...) {}
+        };
+        // Switch STB channel
+        app->scanner.onSwitchChannel = [&app](const std::string& svcId, int tvState) -> bool {
+            try {
+                bool ok = app->client.changeChannelDirect(svcId, tvState);
+                if (ok) {
+                    // Double-send after 700ms for reliable switching
+                    std::string sid = svcId; int ts = tvState;
+                    std::thread([&app, sid, ts]() {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(700));
+                        try { app->client.changeChannelDirect(sid, ts); } catch (...) {}
+                    }).detach();
+                }
+                return ok;
+            } catch (...) { return false; }
+        };
+        // Feed collected samples to all tools
+        app->scanner.onSampleCollected = [&app](const cccam::ScanSample& s) {
+            try {
+                if (s.cw_ok) {
+                    app->cccam.learner.addSample(s.caid, s.provid, s.sid,
+                        nullptr, 0, true, s.cw.data(), s.server);
+                    app->cccam.aiPredictor.learn(s.caid, s.sid, s.provid,
+                        nullptr, 0, s.cw.data(), true, s.server, s.latency_ms);
+                    app->cccam.caEngine.learn(s.caid, s.sid, s.provid,
+                        nullptr, 0, s.cw.data(), true, s.server, s.latency_ms);
+                    app->offlineCwDb.store(s.caid, s.sid, s.provid,
+                        nullptr, 0, s.cw.data(), s.server);
+                }
+            } catch (...) {}
+        };
+        // Wire CccamServer → Scanner notification (ECM results for signal quality)
+        app->cccam.onScannerNotify = [&app](uint16_t caid, uint32_t provid, uint16_t sid,
+                                             bool ok, const uint8_t* cw, float latMs,
+                                             const std::string& srv) {
+            try { app->scanner.notifyEcmResult(caid, provid, sid, ok, cw, latMs, srv); } catch (...) {}
+        };
+
+        CrashLog("Background services started (harvester + trainer + offline DB + scanner)");
     } catch (...) { CrashLog("Background services init failed"); }
 
     // Start on CCcam + AI tab
@@ -990,13 +1126,24 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
         // ── Periodic keepalive: send every 30s when connected and idle ──
         {
             static time_t last_ka = 0;
+            static std::atomic<bool> ka_busy{false};
             time_t now_t = time(nullptr);
-            if (now_t - last_ka >= 30) {
+            if (now_t - last_ka >= 10) {
                 last_ka = now_t;
                 try {
                     if (app->client.isConnected() &&
-                        app->client.millisSinceLastActivity() > 28000) {
-                        app->client.sendKeepAlive();
+                        (app->rtspViewer.isRunning() || app->client.millisSinceLastActivity() > 8000)) {
+                        if (!ka_busy.exchange(true)) {
+                            std::weak_ptr<App> wapp = app;
+                            std::thread([wapp]{
+                                try {
+                                    auto sp = wapp.lock();
+                                    if (!sp || sp->down) return;
+                                    sp->client.sendKeepAlive();
+                                } catch (...) {}
+                                try { ka_busy = false; } catch (...) {}
+                            }).detach();
+                        }
                     }
                 } catch (...) {}
             }
@@ -1176,6 +1323,7 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                 if (ImGui::BeginTabItem("Channels",  nullptr, mtf(0))) { app->mainTab = 0; ImGui::EndTabItem(); }
                 if (ImGui::BeginTabItem("CCcam + AI", nullptr, mtf(1))) { app->mainTab = 1; ImGui::EndTabItem(); }
                 if (ImGui::BeginTabItem("STB Info",   nullptr, mtf(2))) { app->mainTab = 2; ImGui::EndTabItem(); }
+                if (ImGui::BeginTabItem("Live TV",    nullptr, mtf(3))) { app->mainTab = 3; ImGui::EndTabItem(); }
                 ImGui::EndTabBar();
             }
             prevMainTab = app->mainTab;
@@ -1908,11 +2056,13 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
             if (app->rightTab == 1) {
                 if (ImGui::SmallButton("Clear##rl")) app->log.clear();
                 ImGui::SameLine(0,4);
+                if (ImGui::SmallButton("Copy##rlc")) ImGui::SetClipboardText(app->log.fullText().c_str());
+                ImGui::SameLine(0,4);
                 ImGui::Checkbox("Auto##rls", &app->log.scroll);
                 ImGui::SameLine(0,4);
                 if (ImGui::SmallButton("Full##rlf")) app->showLog = true;
                 ImGui::SameLine(0,8);
-                if (ImGui::SmallButton("CCcam Log##rlc")) app->showCccamLog = true;
+                if (ImGui::SmallButton("CCcam Log##rlcc")) app->showCccamLog = true;
                 ImGui::Separator();
                 ImGui::BeginChild("##rlv", {0,0}, false, ImGuiWindowFlags_HorizontalScrollbar);
                 auto logSnap = app->log.snap();
@@ -2434,6 +2584,316 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                         ImGui::SameLine(0,8);
                         ImGui::SetNextItemWidth(80*dpi);
                         ImGui::SliderInt("Train interval s##train", &app->aiTrainer.train_interval_s, 10, 300);
+                    }
+
+                    // ── CA Engine (Multi-CA Decryption) ──
+                    if (ImGui::CollapsingHeader("CA Engine (Multi-CA Decryption)##dash", ImGuiTreeNodeFlags_DefaultOpen)) {
+                        auto ces = app->cccam.caEngine.getStats();
+                        if (ImGui::BeginTable("##dash_ca", 2, ImGuiTableFlags_SizingFixedFit)) {
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Channels");
+                            ImGui::TableSetColumnIndex(1); ImGui::Text("%d tracked", ces.total_channels);
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("CW Predict");
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::Text("%d made", ces.total_predictions);
+                            ImGui::SameLine(0,8);
+                            ImGui::TextColored({0.3f,0.9f,0.4f,1}, "%d correct", ces.total_correct);
+                            ImGui::SameLine(0,8);
+                            if (ces.total_predictions > 0)
+                                ImGui::TextColored(ces.overall_accuracy > 60 ? ImVec4{0.3f,0.9f,0.4f,1} :
+                                                   ces.overall_accuracy > 30 ? ImVec4{0.9f,0.8f,0.2f,1} :
+                                                                               ImVec4{0.9f,0.3f,0.3f,1},
+                                                   "%.1f%%", ces.overall_accuracy);
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Pre-fetch");
+                            ImGui::TableSetColumnIndex(1); ImGui::Text("%d triggers", ces.prefetch_triggers);
+                            ImGui::SameLine(0,12);
+                            ImGui::TextDisabled("Routes: %d switches", ces.route_switches);
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("BISS");
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::TextColored({0.5f,0.8f,1.0f,1}, "%d keys found", ces.biss_keys_found);
+                            ImGui::SameLine(0,12);
+                            ImGui::TextDisabled("PowerVu: %d rolls", ces.powervu_rolls);
+                            ImGui::EndTable();
+                        }
+
+                        // Per-CA system breakdown
+                        if (!ces.ca_stats.empty() && ImGui::TreeNode("Per-CA System Breakdown##ca")) {
+                            if (ImGui::BeginTable("##ca_sys", 7, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit)) {
+                                ImGui::TableSetupColumn("CA System");
+                                ImGui::TableSetupColumn("Ch");
+                                ImGui::TableSetupColumn("ECMs");
+                                ImGui::TableSetupColumn("Rate");
+                                ImGui::TableSetupColumn("Latency");
+                                ImGui::TableSetupColumn("Predict");
+                                ImGui::TableSetupColumn("Accuracy");
+                                ImGui::TableHeadersRow();
+                                for (auto& cs : ces.ca_stats) {
+                                    ImGui::TableNextRow();
+                                    ImGui::TableSetColumnIndex(0);
+                                    ImGui::TextColored({0.5f,0.8f,1.0f,1}, "%s", cccam::caTypeName(cs.type));
+                                    ImGui::TableSetColumnIndex(1); ImGui::Text("%d", cs.channels);
+                                    ImGui::TableSetColumnIndex(2); ImGui::Text("%d", cs.ecm_total);
+                                    ImGui::TableSetColumnIndex(3);
+                                    ImGui::TextColored(cs.success_rate > 80 ? ImVec4{0.3f,0.9f,0.4f,1} :
+                                                       cs.success_rate > 40 ? ImVec4{0.9f,0.8f,0.2f,1} :
+                                                                              ImVec4{0.9f,0.3f,0.3f,1},
+                                                       "%.0f%%", cs.success_rate);
+                                    ImGui::TableSetColumnIndex(4);
+                                    if (cs.avg_latency > 0) ImGui::Text("%.0fms", cs.avg_latency);
+                                    else ImGui::TextDisabled("-");
+                                    ImGui::TableSetColumnIndex(5); ImGui::Text("%d", cs.predictions_made);
+                                    ImGui::TableSetColumnIndex(6);
+                                    if (cs.predictions_made > 0)
+                                        ImGui::TextColored(cs.prediction_accuracy > 60 ? ImVec4{0.3f,0.9f,0.4f,1} :
+                                                           cs.prediction_accuracy > 30 ? ImVec4{0.9f,0.8f,0.2f,1} :
+                                                                                         ImVec4{0.9f,0.3f,0.3f,1},
+                                                           "%.0f%%", cs.prediction_accuracy);
+                                    else ImGui::TextDisabled("-");
+                                }
+                                ImGui::EndTable();
+                            }
+                            ImGui::TreePop();
+                        }
+
+                        // CA system descriptions
+                        if (ImGui::TreeNode("CA System Profiles##ca")) {
+                            for (auto& p : cccam::kCaProfiles) {
+                                ImGui::BulletText("%s: %s", cccam::caTypeName(p.type), p.description);
+                                ImGui::SameLine(0,0);
+                                ImGui::TextDisabled(" [rot=%.0fs, CCcam=%s, pred=%d%%]",
+                                    p.typical_rotation_sec,
+                                    p.supports_cccam ? "Y" : "N",
+                                    p.prediction_confidence);
+                            }
+                            ImGui::TreePop();
+                        }
+
+                        if (ImGui::SmallButton("Save CA Engine")) {
+                            app->cccam.caEngine.save();
+                            app->log.add("CA Engine saved");
+                        }
+                    }
+
+                    // ── Channel Scanner ──
+                    if (ImGui::CollapsingHeader("Channel Scanner##dash", ImGuiTreeNodeFlags_DefaultOpen)) {
+                        auto ss = app->scanner.getStats();
+                        // Status + controls
+                        ImGui::TextColored(ss.running ? (ss.paused ? ImVec4{0.9f,0.8f,0.2f,1} : ImVec4{0.3f,0.9f,0.4f,1}) : ImVec4{0.5f,0.5f,0.5f,1},
+                            ss.running ? (ss.paused ? "PAUSED" : "SCANNING") : "STOPPED");
+                        ImGui::SameLine(0,12);
+                        if (!ss.running) {
+                            if (ImGui::SmallButton("Start Scanner")) {
+                                // Build scan queue from loaded channels
+                                std::vector<cccam::ScannedChannel> encCh;
+                                {
+                                    std::lock_guard<std::mutex> g(app->chMu);
+                                    for (auto& ch : app->channels) {
+                                        if (!ch.is_scrambled) continue;
+                                        if (ch.video_pid <= 0) continue;
+                                        cccam::ScannedChannel sc;
+                                        sc.service_index = ch.service_index;
+                                        sc.service_id = ch.service_id;
+                                        sc.service_name = ch.service_name;
+                                        sc.is_radio = ch.is_radio;
+                                        encCh.push_back(std::move(sc));
+                                    }
+                                }
+                                if (encCh.empty()) {
+                                    app->log.add("[Scanner] No encrypted channels — load channel list first");
+                                } else {
+                                    app->scanner.setChannelList(encCh);
+                                    app->scanner.load(); // restore previous scan stats
+                                    app->scanner.start();
+                                }
+                            }
+                        } else {
+                            if (ss.paused) {
+                                if (ImGui::SmallButton("Resume")) app->scanner.resume();
+                            } else {
+                                if (ImGui::SmallButton("Pause")) app->scanner.pause();
+                            }
+                            ImGui::SameLine(0,8);
+                            if (ImGui::SmallButton("Stop Scanner")) app->scanner.stop();
+                        }
+
+                        if (ss.running && ss.total_channels > 0) {
+                            ImGui::SameLine(0,12);
+                            ImGui::TextDisabled("Cycle %.0f%%", ss.cycle_progress * 100);
+                            ImGui::ProgressBar(ss.cycle_progress, {-1, 3*dpi}, "");
+                        }
+
+                        if (ImGui::BeginTable("##dash_scan", 2, ImGuiTableFlags_SizingFixedFit)) {
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Queue");
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::Text("%d channels", ss.total_channels);
+                            ImGui::SameLine(0,8);
+                            ImGui::TextDisabled("(%d scanned)", ss.scanned);
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Signal");
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::TextColored({0.3f,0.9f,0.4f,1}, "%d good", ss.good_signal);
+                            ImGui::SameLine(0,6);
+                            ImGui::TextColored({0.9f,0.8f,0.2f,1}, "%d poor", ss.poor_signal);
+                            ImGui::SameLine(0,6);
+                            ImGui::TextColored({0.9f,0.3f,0.3f,1}, "%d no-sig", ss.no_signal);
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Samples");
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::Text("%d total", ss.total_samples);
+                            ImGui::SameLine(0,6);
+                            ImGui::TextColored({0.3f,0.9f,0.4f,1}, "%d CW", ss.total_cw_ok);
+                            ImGui::SameLine(0,6);
+                            ImGui::TextColored({0.9f,0.3f,0.3f,1}, "%d fail", ss.total_cw_fail);
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Cycles");
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::Text("%d complete", ss.scan_cycles);
+                            if (ss.elapsed_min > 0) {
+                                ImGui::SameLine(0,8);
+                                ImGui::TextDisabled("%.1f min", ss.elapsed_min);
+                            }
+                            if (ss.running && !ss.current_name.empty()) {
+                                ImGui::TableNextRow();
+                                ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Current");
+                                ImGui::TableSetColumnIndex(1);
+                                ImGui::TextColored({0.4f,0.8f,1.0f,1}, "%s (#%d)", ss.current_name.c_str(), ss.current_index);
+                            }
+                            ImGui::EndTable();
+                        }
+
+                        // Config sliders
+                        ImGui::SetNextItemWidth(80*dpi);
+                        ImGui::SliderInt("Dwell sec##scan", &app->scanner.dwell_time_sec, 10, 120);
+                        ImGui::SameLine(0,12);
+                        ImGui::SetNextItemWidth(80*dpi);
+                        ImGui::SliderInt("Sig timeout##scan", &app->scanner.signal_timeout_sec, 2, 15);
+                        ImGui::SameLine(0,12);
+                        ImGui::SetNextItemWidth(80*dpi);
+                        ImGui::SliderInt("Max ch##scan", &app->scanner.max_channels, 50, 500);
+
+                        // Scanned channels detail tree
+                        if (ss.scanned > 0 && ImGui::TreeNode("Scanned Channels##scan")) {
+                            auto scCh = app->scanner.getScannedChannels();
+                            if (ImGui::BeginTable("##scan_ch", 7, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_ScrollY, {0, 200*dpi})) {
+                                ImGui::TableSetupScrollFreeze(0, 1);
+                                ImGui::TableSetupColumn("#");
+                                ImGui::TableSetupColumn("Name");
+                                ImGui::TableSetupColumn("Signal");
+                                ImGui::TableSetupColumn("CW OK");
+                                ImGui::TableSetupColumn("Fail");
+                                ImGui::TableSetupColumn("Latency");
+                                ImGui::TableSetupColumn("CAID");
+                                ImGui::TableHeadersRow();
+                                for (auto& sc : scCh) {
+                                    if (sc.scan_count == 0) continue;
+                                    ImGui::TableNextRow();
+                                    ImGui::TableSetColumnIndex(0); ImGui::Text("%d", sc.service_index);
+                                    ImGui::TableSetColumnIndex(1); ImGui::Text("%s", sc.service_name.c_str());
+                                    ImGui::TableSetColumnIndex(2);
+                                    {
+                                        const char* sq = "?";
+                                        ImVec4 sqc = {0.5f,0.5f,0.5f,1};
+                                        if (sc.signal_quality == cccam::ScannedChannel::Quality::Good) { sq = "Good"; sqc = {0.3f,0.9f,0.4f,1}; }
+                                        else if (sc.signal_quality == cccam::ScannedChannel::Quality::Poor) { sq = "Poor"; sqc = {0.9f,0.8f,0.2f,1}; }
+                                        else if (sc.signal_quality == cccam::ScannedChannel::Quality::NoSignal) { sq = "NoSig"; sqc = {0.9f,0.3f,0.3f,1}; }
+                                        ImGui::TextColored(sqc, "%s", sq);
+                                    }
+                                    ImGui::TableSetColumnIndex(3);
+                                    ImGui::TextColored({0.3f,0.9f,0.4f,1}, "%d", sc.cw_obtained);
+                                    ImGui::TableSetColumnIndex(4);
+                                    if (sc.cw_failed > 0) ImGui::TextColored({0.9f,0.3f,0.3f,1}, "%d", sc.cw_failed);
+                                    else ImGui::TextDisabled("0");
+                                    ImGui::TableSetColumnIndex(5);
+                                    if (sc.avg_latency_ms > 0) ImGui::Text("%.0fms", sc.avg_latency_ms);
+                                    else ImGui::TextDisabled("-");
+                                    ImGui::TableSetColumnIndex(6);
+                                    if (sc.caid > 0) ImGui::Text("%04X", sc.caid);
+                                    else ImGui::TextDisabled("-");
+                                }
+                                ImGui::EndTable();
+                            }
+                            ImGui::TreePop();
+                        }
+
+                        if (ImGui::SmallButton("Save Scan Data##scan")) {
+                            app->scanner.save();
+                            app->log.add("Scanner data saved");
+                        }
+                    }
+
+                    // ── Turbo Pipeline (Sub-3s ECM Response) ──
+                    if (ImGui::CollapsingHeader("Turbo Pipeline (Sub-3s ECM)##dash", ImGuiTreeNodeFlags_DefaultOpen)) {
+                        auto ts = app->cccam.turbo.getStats();
+                        if (ImGui::BeginTable("##dash_turbo", 2, ImGuiTableFlags_SizingFixedFit)) {
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Total ECM");
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::Text("%d", ts.total_ecm);
+                            ImGui::SameLine(0,8);
+                            ImGui::TextColored(ts.successRate() > 80 ? ImVec4{0.3f,0.9f,0.4f,1} :
+                                               ts.successRate() > 40 ? ImVec4{0.9f,0.8f,0.2f,1} :
+                                                                        ImVec4{0.9f,0.3f,0.3f,1},
+                                               "%.1f%% success", ts.successRate());
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Avg Latency");
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::TextColored(ts.avg_response_ms < 1000 ? ImVec4{0.3f,0.9f,0.4f,1} :
+                                               ts.avg_response_ms < 3000 ? ImVec4{0.9f,0.8f,0.2f,1} :
+                                                                            ImVec4{0.9f,0.3f,0.3f,1},
+                                               "%.0f ms", ts.avg_response_ms);
+                            ImGui::SameLine(0,12);
+                            ImGui::TextColored({0.9f,0.3f,0.3f,1}, "%d timeouts (>%.0fs)", ts.timeouts, app->cccam.turbo.max_response_sec);
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Layer Hits");
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::TextColored({0.3f,0.9f,0.4f,1}, "Cache:%d", ts.cache_hits);
+                            ImGui::SameLine(0,6);
+                            ImGui::TextColored({0.4f,0.8f,1.0f,1}, "Upstream:%d", ts.upstream_hits);
+                            ImGui::SameLine(0,6);
+                            ImGui::TextColored({0.6f,0.7f,1.0f,1}, "Offline:%d", ts.offline_hits);
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("");
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::TextColored({0.8f,0.6f,1.0f,1}, "CA-Pred:%d", ts.ca_predict_hits);
+                            ImGui::SameLine(0,6);
+                            ImGui::TextColored({1.0f,0.6f,0.8f,1}, "AI:%d", ts.ai_hits);
+                            ImGui::SameLine(0,6);
+                            ImGui::TextDisabled("Prefetch:%d/%d", ts.prefetch_saved, ts.prefetch_triggered);
+                            ImGui::EndTable();
+                        }
+
+                        // Turbo pipeline layer breakdown bar
+                        if (ts.total_ecm > 0) {
+                            int ok = ts.cache_hits + ts.upstream_hits + ts.offline_hits + ts.ca_predict_hits + ts.ai_hits;
+                            int fail = ts.total_ecm - ok;
+                            float w = ImGui::GetContentRegionAvail().x;
+                            float h = 14*dpi;
+                            ImVec2 p = ImGui::GetCursorScreenPos();
+                            auto* dl = ImGui::GetWindowDrawList();
+                            float x = p.x;
+                            auto bar = [&](int cnt, ImU32 col) {
+                                if (cnt <= 0) return;
+                                float bw = w * ((float)cnt / ts.total_ecm);
+                                dl->AddRectFilled({x, p.y}, {x+bw, p.y+h}, col, 2);
+                                x += bw;
+                            };
+                            bar(ts.cache_hits, IM_COL32(70, 230, 100, 200));
+                            bar(ts.upstream_hits, IM_COL32(100, 200, 255, 200));
+                            bar(ts.offline_hits, IM_COL32(150, 180, 255, 200));
+                            bar(ts.ca_predict_hits, IM_COL32(200, 150, 255, 200));
+                            bar(ts.ai_hits, IM_COL32(255, 150, 200, 200));
+                            bar(fail, IM_COL32(230, 70, 70, 200));
+                            ImGui::Dummy({w, h + 2});
+                            ImGui::TextDisabled("Cache | Upstream | Offline | CA-Pred | AI | Fail");
+                        }
+
+                        if (ImGui::SmallButton("Reset Stats##turbo")) {
+                            app->cccam.turbo.reset();
+                        }
                     }
                 }
 
@@ -3612,6 +4072,209 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
 
                     ImGui::EndTabBar();
                 }
+            }
+            ImGui::End();
+        }
+
+        // ════════════════════════════════════════════════════════════════
+        // ── TAB 3: LIVE TV ──
+        // ════════════════════════════════════════════════════════════════
+        if (app->mainTab == 3) {
+            ImGui::SetNextWindowPos({OX+P, OY+P+CONN_H+P});
+            ImGui::SetNextWindowSize({LW, CH_H});
+            if (ImGui::Begin("##livetv_docked", nullptr,
+                ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) {
+                
+                app->rtspViewer.pump();
+                bool isRunning = app->rtspViewer.isRunning();
+                bool hasVideo  = app->rtspViewer.hasVideo();
+                auto& stats    = app->rtspViewer.getStats();
+                static bool ffmpegAvailable = stb::RtspViewer::isFFmpegAvailable();
+
+                float fullW = ImGui::GetContentRegionAvail().x;
+                float listW = 220 * dpi;
+                float vidW  = fullW - listW - 8*dpi;
+
+                // ════════════════════════════════════════════
+                // LEFT PANEL: Channel List
+                // ════════════════════════════════════════════
+                ImGui::BeginChild("##live_chlist", {listW, 0}, true);
+                {
+                    // Status line
+                    if (ffmpegAvailable) {
+                        ImGui::TextColored({0.38f, 0.88f, 0.38f, 1.0f}, "[FFmpeg OK]");
+                    } else {
+                        ImGui::TextColored({0.95f, 0.75f, 0.10f, 1.0f}, "[No FFmpeg]");
+                    }
+                    ImGui::SameLine();
+                    if (isRunning) {
+                        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.75f, 0.22f, 0.22f, 0.85f});
+                        if (ImGui::Button("Stop##live", {50*dpi, 0})) {
+                            app->liveTuning = false;
+                            app->liveSelectedCh = -1;
+                            std::weak_ptr<App> wstop = app;
+                            std::thread([wstop]{
+                                try {
+                                    auto sp = wstop.lock(); if (!sp) return;
+                                    sp->rtspViewer.stop();
+                                    try { if (sp->client.isConnected()) sp->client.sat2ipStop(); } catch (...) {}
+                                } catch (...) {}
+                            }).detach();
+                        }
+                        ImGui::PopStyleColor();
+                    } else if (app->liveTuning) {
+                        ImGui::TextColored({0.95f, 0.75f, 0.10f, 1.0f}, "Tuning...");
+                    }
+
+                    // Filter
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::InputTextWithHint("##livefilter", "Filter...", app->liveFilter, sizeof(app->liveFilter));
+
+                    ImGui::Separator();
+
+                    // Channel list — only UI here, heavy work in background thread
+                    int clickedChIdx = -1;
+                    ImGui::BeginChild("##live_chscroll", {0, 0});
+                    {
+                        std::lock_guard<std::mutex> g(app->chMu);
+                        std::string flt;
+                        if (app->liveFilter[0]) { flt = app->liveFilter; for (auto& c : flt) c = (char)tolower((unsigned char)c); }
+                        for (int i = 0; i < (int)app->channels.size(); i++) {
+                            const auto& ch = app->channels[i];
+                            if (ch.is_radio) continue;
+                            if (!flt.empty()) { std::string n = ch.service_name; for (auto& c : n) c = (char)tolower((unsigned char)c); if (n.find(flt) == std::string::npos) continue; }
+                            bool isSel = (i == app->liveSelectedCh);
+                            char lb[256]; snprintf(lb, sizeof(lb), "%d. %s##lch%d", ch.service_index, ch.service_name.c_str(), i);
+                            if (isSel) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.2f, 0.9f, 0.4f, 1.0f});
+                            if (ImGui::Selectable(lb, isSel) && !app->liveTuning) clickedChIdx = i;
+                            if (isSel) ImGui::PopStyleColor();
+                        }
+                    }
+                    ImGui::EndChild();
+
+                    // Launch background thread if channel was clicked
+                    if (clickedChIdx >= 0) {
+                        app->liveSelectedCh = clickedChIdx;
+                        app->liveTuning = true;
+                        // Capture needed data outside lock
+                        std::string sid, chName, url;
+                        {
+                            std::lock_guard<std::mutex> g(app->chMu);
+                            if (clickedChIdx < (int)app->channels.size()) {
+                                const auto& ch = app->channels[clickedChIdx];
+                                sid = ch.service_id; chName = ch.service_name;
+                                auto cfg = stb::RtspViewer::extractChannelParams(ch);
+                                { std::lock_guard<std::mutex> gt(app->tpMu);
+                                  for (const auto& tp : app->transponders) {
+                                    if (tp.sat_index == cfg.sat_index && tp.tp_index == cfg.tp_index) {
+                                        cfg.freq = tp.freq; cfg.sym_rate = tp.sym_rate; cfg.fec = tp.fec; cfg.pol = tp.pol; break;
+                                    }
+                                  }
+                                }
+                                url = stb::RtspViewer::generateMediaStarUrl(app->ip, cfg);
+                            }
+                        }
+                        if (!url.empty()) {
+                            snprintf(app->rtspUrl, sizeof(app->rtspUrl), "%s", url.c_str());
+                            app->rtspProgramId = sid;
+                            app->log.add("[LiveTV] " + chName);
+                            std::weak_ptr<App> wapp = app;
+                            std::string urlCopy = url, sidCopy = sid;
+                            std::thread([wapp, urlCopy, sidCopy]{
+                                try {
+                                    auto sp = wapp.lock(); if (!sp || sp->down) return;
+                                    // 1) Stop old stream
+                                    sp->rtspViewer.stop();
+                                    try { if (sp->client.isConnected()) sp->client.sat2ipStop(); } catch (...) {}
+                                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                                    if (sp->down) return;
+                                    // 2) Set up log callback + start RTSP
+                                    sp->rtspViewer.onLog = [wapp](const std::string& msg) {
+                                        try { auto s2 = wapp.lock(); if (s2 && !s2->down) s2->log.add(msg); } catch (...) {}
+                                    };
+                                    stb::RtspViewerConfig rcfg; rcfg.url = urlCopy; rcfg.tcp_transport = false;
+                                    sp->rtspViewer.start(rcfg);
+                                    // 3) Tell STB to tune channel
+                                    try { if (sp->client.isConnected()) sp->client.sat2ipChannelPlay(sidCopy, 0); } catch (...) {}
+                                    sp->liveTuning = false;
+                                } catch (...) {
+                                    try { auto sp = wapp.lock(); if (sp) sp->liveTuning = false; } catch (...) {}
+                                }
+                            }).detach();
+                        } else { app->liveTuning = false; }
+                    }
+                }
+                ImGui::EndChild();
+
+                ImGui::SameLine(0, 8*dpi);
+
+                // ════════════════════════════════════════════
+                // RIGHT PANEL: Video + Status
+                // ════════════════════════════════════════════
+                ImGui::BeginChild("##live_video", {vidW, 0}, true);
+                {
+                    // ── Status bar ──
+                    if (isRunning) {
+                        if (hasVideo) {
+                            ImGui::TextColored({0.38f, 0.88f, 0.38f, 1.0f}, "STREAMING");
+                            ImGui::SameLine(0, 10);
+                            ImGui::TextDisabled("%dx%d %.1ffps %dkbps",
+                                stats.width.load(), stats.height.load(),
+                                stats.fps.load(), stats.bitrate_kbps.load());
+                            ImGui::SameLine(0, 10);
+                            ImGui::TextDisabled("RTP %llu (late %llu skip %llu) TS pend %llub",
+                                (unsigned long long)stats.rtp_packets.load(),
+                                (unsigned long long)stats.rtp_late_drops.load(),
+                                (unsigned long long)stats.rtp_gap_skips.load(),
+                                (unsigned long long)stats.ts_pending_bytes.load());
+                        } else if (stats.connected.load()) {
+                            ImGui::TextColored({0.95f, 0.75f, 0.10f, 1.0f}, "Waiting for video...");
+                        } else {
+                            ImGui::TextColored({0.95f, 0.75f, 0.10f, 1.0f}, "CONNECTING...");
+                        }
+                    } else {
+                        std::string err = stats.getError();
+                        if (!err.empty()) {
+                            ImGui::TextColored({0.95f, 0.42f, 0.38f, 1.0f}, "%s", err.c_str());
+                        } else {
+                            ImGui::TextDisabled("Select a channel to start Live TV");
+                        }
+                    }
+                    ImGui::Separator();
+
+                    // ── Video display ──
+                    ImVec2 videoSize = ImGui::GetContentRegionAvail();
+                    if (hasVideo) {
+                        ID3D11ShaderResourceView* srv = app->rtspViewer.getTextureSRV();
+                        if (srv) {
+                            int srcW = stats.width.load(), srcH = stats.height.load();
+                            float aspectSrc = (srcH > 0) ? (float)srcW / (float)srcH : 16.0f/9.0f;
+                            float aspectDst = videoSize.x / videoSize.y;
+                            float drawW, drawH;
+                            if (aspectSrc > aspectDst) { drawW = videoSize.x; drawH = videoSize.x / aspectSrc; }
+                            else                       { drawH = videoSize.y; drawW = videoSize.y * aspectSrc; }
+                            float offX = (videoSize.x - drawW) * 0.5f;
+                            float offY = (videoSize.y - drawH) * 0.5f;
+                            ImGui::SetCursorPos({ImGui::GetCursorPos().x + offX, ImGui::GetCursorPos().y + offY});
+                            ImGui::Image((ImTextureID)srv, {drawW, drawH});
+                        }
+                    } else if (!ffmpegAvailable) {
+                        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + videoSize.y * 0.3f);
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.95f, 0.75f, 0.10f, 1.0f});
+                        ImGui::TextWrapped("FFmpeg DLLs not found. Install: pacman -S mingw-w64-ucrt-x86_64-ffmpeg");
+                        ImGui::PopStyleColor();
+                    } else if (isRunning) {
+                        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + videoSize.y * 0.35f);
+                        ImGui::TextColored({0.6f, 0.6f, 0.6f, 1.0f}, "Waiting for video stream...");
+                    } else {
+                        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + videoSize.y * 0.3f);
+                        ImGui::TextDisabled("Select a channel from the list to start streaming.");
+                        ImGui::Spacing();
+                        ImGui::TextDisabled("The STB will tune the transponder (dish may rotate).");
+                        ImGui::TextDisabled("Video will appear once the stream is ready.");
+                    }
+                }
+                ImGui::EndChild();
             }
             ImGui::End();
         }
