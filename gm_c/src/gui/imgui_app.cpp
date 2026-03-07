@@ -519,7 +519,7 @@ struct App {
     bool showLog = false, showCccamLog = false, showCccam = false, showStbInfo = false;
     bool showDetail = false, showSatPanel = false, showRemote = false, showKeyboard = false;
     int  rightTab = 0;     // 0=Remote, 1=Log, 2=My Lists
-    int  mainTab  = 0;     // 0=Channels, 1=CCcam+AI, 2=STB Info
+    int  mainTab  = 0;     // 0=Channels+Live, 1=CCcam+AI, 2=STB Info
     stb::CustomLists customLists;
     bool clDirty = false;  // auto-save trigger
     int  ccaiTab = 0;      // CCcam+AI combined window active tab
@@ -527,6 +527,33 @@ struct App {
     int  sortCol = 0;              // 0=index, 1=name, 2=freq, 3=type
     bool sortAsc = true;
     int  filterFav = 0;            // 0=all, 1=fav only, 2=FTA only, 3=scrambled only
+
+    // Recent channels (last 20 played)
+    struct RecentChannel {
+        std::string service_id;
+        std::string name;
+        int service_index = 0;
+        bool is_radio = false;
+    };
+    std::vector<RecentChannel> recentChannels;
+    static constexpr int MAX_RECENT = 20;
+    void addRecentChannel(const std::string& sid, const std::string& name, int idx, bool radio) {
+        // Remove duplicates
+        recentChannels.erase(
+            std::remove_if(recentChannels.begin(), recentChannels.end(),
+                [&](const RecentChannel& r){ return r.service_id == sid; }),
+            recentChannels.end());
+        // Add to front
+        recentChannels.insert(recentChannels.begin(), {sid, name, idx, radio});
+        if ((int)recentChannels.size() > MAX_RECENT)
+            recentChannels.resize(MAX_RECENT);
+    }
+
+    // PiP (Picture-in-Picture) mode
+    bool pipMode = false;
+    int  pipSize = 1;     // 0=small(320x180), 1=medium(480x270), 2=large(640x360)
+    HWND mainHwnd = nullptr; // stored for SetWindowPos calls
+    RECT pipSavedRect = {};  // original window rect before PiP
     
     // Cross-reference channels with satellite list to fill satellite_name
     void crossRefSatellites() {
@@ -914,6 +941,7 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
     }
     // shared_ptr so detached threads keep App alive
     std::shared_ptr<App> app(rawApp);
+    app->mainHwnd = hwnd;
     app->log.add("GMScreen started - MediaStar 4030 4K");
     app->loadCachedChannels();  // Load persistent cache from disk
     app->customLists.load();    // Load custom channel lists
@@ -1163,6 +1191,153 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
         auto ss       = app->snapStrings();
 
         // ════════════════════════════════════════════════════════════════
+        // PiP MODE: borderless video-only, overlay on hover
+        // ════════════════════════════════════════════════════════════════
+        if (app->pipMode) {
+            app->rtspViewer.pump();
+            auto& rvs = app->rtspViewer.getStats();
+            bool pipHasVideo = app->rtspViewer.hasVideo();
+            bool pipRunning  = app->rtspViewer.isRunning();
+
+            // Zero-chrome video window: no border, no padding, no rounding, black bg
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+            ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4{0, 0, 0, 1});
+            ImGui::SetNextWindowPos({OX, OY});
+            ImGui::SetNextWindowSize({VW, VH});
+            ImGui::Begin("##pip_video", nullptr,
+                ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNav);
+            {
+                ImVec2 videoSize = {VW, VH};
+                if (pipHasVideo) {
+                    ID3D11ShaderResourceView* srv = app->rtspViewer.getTextureSRV();
+                    if (srv) {
+                        int srcW = rvs.width.load(), srcH = rvs.height.load();
+                        float aspectSrc = (srcH > 0) ? (float)srcW / (float)srcH : 16.0f/9.0f;
+                        float aspectDst = (videoSize.y > 0) ? videoSize.x / videoSize.y : 1.0f;
+                        float drawW, drawH;
+                        if (aspectSrc > aspectDst) { drawW = videoSize.x; drawH = videoSize.x / aspectSrc; }
+                        else                       { drawH = videoSize.y; drawW = videoSize.y * aspectSrc; }
+                        float offX2 = (videoSize.x - drawW) * 0.5f;
+                        float offY2 = (videoSize.y - drawH) * 0.5f;
+                        ImGui::SetCursorPos({offX2, offY2});
+                        ImGui::Image((ImTextureID)srv, {drawW, drawH});
+                    }
+                } else if (pipRunning) {
+                    ImGui::SetCursorPos({VW * 0.2f, VH * 0.4f});
+                    ImGui::TextColored({0.5f, 0.5f, 0.5f, 1.0f}, "Waiting for video...");
+                } else {
+                    ImGui::SetCursorPos({VW * 0.2f, VH * 0.4f});
+                    ImGui::TextColored({0.4f, 0.4f, 0.4f, 1.0f}, "No stream");
+                }
+            }
+            ImGui::End();
+            ImGui::PopStyleColor();
+            ImGui::PopStyleVar(3);
+
+            // Detect mouse hover over entire PiP area
+            ImVec2 mpos = ImGui::GetIO().MousePos;
+            bool mouseInPip = (mpos.x >= OX && mpos.x <= OX + VW && mpos.y >= OY && mpos.y <= OY + VH);
+
+            // Smooth fade for overlay
+            static float pipOverlayAlpha = 0.0f;
+            float target = mouseInPip ? 1.0f : 0.0f;
+            float speed = 8.0f * ImGui::GetIO().DeltaTime;
+            pipOverlayAlpha += (target - pipOverlayAlpha) * (speed > 1.0f ? 1.0f : speed);
+            if (pipOverlayAlpha < 0.01f) pipOverlayAlpha = 0.0f;
+
+            if (pipOverlayAlpha > 0.01f) {
+                float alpha = pipOverlayAlpha * 0.85f;
+                float barH = 32 * dpi;
+                float barY = OY + VH - barH;
+
+                // Bottom bar overlay
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {8*dpi, 4*dpi});
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+                ImGui::SetNextWindowPos({OX, barY});
+                ImGui::SetNextWindowSize({VW, barH});
+                ImGui::SetNextWindowBgAlpha(alpha * 0.70f);
+                ImGui::Begin("##pip_bar", nullptr,
+                    ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+                    ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoFocusOnAppearing);
+                {
+                    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
+                    float ba = alpha;
+
+                    // Close button
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.85f, 0.20f, 0.20f, ba});
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4{1.0f, 0.30f, 0.30f, ba});
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{1, 1, 1, ba});
+                    if (ImGui::SmallButton("Close")) {
+                        app->pipMode = false;
+                        RECT& r = app->pipSavedRect;
+                        if (r.right > r.left && r.bottom > r.top)
+                            SetWindowPos(app->mainHwnd, HWND_NOTOPMOST, r.left, r.top, r.right - r.left, r.bottom - r.top, 0);
+                        else
+                            SetWindowPos(app->mainHwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+                    }
+                    ImGui::PopStyleColor(3);
+
+                    // Size buttons
+                    const char* szN[] = {"S","M","L"};
+                    const int szW[] = {400, 600, 840};
+                    const int szH[] = {260, 380, 520};
+                    for (int si = 0; si < 3; si++) {
+                        ImGui::SameLine(0, 4);
+                        bool act = (app->pipSize == si);
+                        ImVec4 btnCol = act ? ImVec4{0.20f, 0.55f, 0.90f, ba} : ImVec4{0.30f, 0.30f, 0.35f, ba};
+                        ImGui::PushStyleColor(ImGuiCol_Button, btnCol);
+                        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4{0.35f, 0.60f, 0.95f, ba});
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{1, 1, 1, ba});
+                        char sl[8]; snprintf(sl, sizeof(sl), "%s##pp%d", szN[si], si);
+                        if (ImGui::SmallButton(sl)) {
+                            app->pipSize = si;
+                            int sx = GetSystemMetrics(SM_CXSCREEN);
+                            int sy = GetSystemMetrics(SM_CYSCREEN);
+                            SetWindowPos(app->mainHwnd, HWND_TOPMOST, sx - szW[si] - 10, sy - szH[si] - 50, szW[si], szH[si], 0);
+                        }
+                        ImGui::PopStyleColor(3);
+                    }
+
+                    // Stop button
+                    if (pipRunning) {
+                        ImGui::SameLine(0, 12);
+                        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.80f, 0.25f, 0.20f, ba});
+                        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4{1.0f, 0.35f, 0.30f, ba});
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{1, 1, 1, ba});
+                        if (ImGui::SmallButton("Stop")) {
+                            app->liveTuning = false; app->liveSelectedCh = -1;
+                            std::weak_ptr<App> ws = app;
+                            std::thread([ws]{ try { auto s = ws.lock(); if (!s) return;
+                                s->rtspViewer.stop();
+                                try { if (s->client.isConnected()) s->client.sat2ipStop(); } catch (...) {}
+                            } catch (...) {} }).detach();
+                        }
+                        ImGui::PopStyleColor(3);
+                    }
+
+                    // Status text on the right
+                    if (pipHasVideo) {
+                        char st[64]; snprintf(st, sizeof(st), "%dx%d %.0ffps",
+                            rvs.width.load(), rvs.height.load(), rvs.fps.load());
+                        ImVec2 ts = ImGui::CalcTextSize(st);
+                        float rx = ImGui::GetContentRegionAvail().x;
+                        if (rx > ts.x + 8) { ImGui::SameLine(ImGui::GetWindowWidth() - ts.x - 12); }
+                        ImGui::TextColored({0.5f, 0.9f, 0.5f, ba}, "%s", st);
+                    }
+
+                    ImGui::PopStyleVar(); // FrameRounding
+                }
+                ImGui::End();
+                ImGui::PopStyleVar(3);
+            }
+            goto pip_end_frame;
+        }
+
+        // ════════════════════════════════════════════════════════════════
         // CONNECTION PANEL
         // ════════════════════════════════════════════════════════════════
         ImGui::SetNextWindowPos({OX+P, OY+P});
@@ -1320,10 +1495,9 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                 auto mtf = [&](int idx) -> ImGuiTabItemFlags {
                     return (mtChanged && app->mainTab == idx) ? ImGuiTabItemFlags_SetSelected : 0;
                 };
-                if (ImGui::BeginTabItem("Channels",  nullptr, mtf(0))) { app->mainTab = 0; ImGui::EndTabItem(); }
+                if (ImGui::BeginTabItem("Channels + Live",  nullptr, mtf(0))) { app->mainTab = 0; ImGui::EndTabItem(); }
                 if (ImGui::BeginTabItem("CCcam + AI", nullptr, mtf(1))) { app->mainTab = 1; ImGui::EndTabItem(); }
                 if (ImGui::BeginTabItem("STB Info",   nullptr, mtf(2))) { app->mainTab = 2; ImGui::EndTabItem(); }
-                if (ImGui::BeginTabItem("Live TV",    nullptr, mtf(3))) { app->mainTab = 3; ImGui::EndTabItem(); }
                 ImGui::EndTabBar();
             }
             prevMainTab = app->mainTab;
@@ -1334,300 +1508,310 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
         // MAIN CONTENT AREA (left panel, below connection)
         // ════════════════════════════════════════════════════════════════
 
-        // ── TAB 0: CHANNELS ──────────────────────────────────────────
+        // Pump video frame queue every frame (regardless of active tab, for PiP)
+        app->rtspViewer.pump();
+
+        // ── TAB 0: CHANNELS + LIVE (unified) ────────────────────────────
         if (app->mainTab == 0) {
         ImGui::SetNextWindowPos({OX+P, OY+P+CONN_H+P});
         ImGui::SetNextWindowSize({LW, CH_H});
-        ImGui::Begin("##channels", nullptr,
+        ImGui::Begin("##channels_live", nullptr,
             ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize);
         {
-            float tbW = 42*dpi, tbH = 22*dpi;
+            bool isRunning = app->rtspViewer.isRunning();
+            bool hasVideo  = app->rtspViewer.hasVideo();
+            auto& rvStats  = app->rtspViewer.getStats();
+            static bool ffmpegAvailable = stb::RtspViewer::isFFmpegAvailable();
 
-            // ── Row 1: Filter tabs + channel count + SAT ──
-            const char* tabNames[] = {"All","TV","Radio","Fav","FTA","Scrambled"};
-            const int tabCount = 6;
-            for (int i = 0; i < tabCount; i++) {
-                if (i) ImGui::SameLine(0,2);
-                bool active = (app->tab == i);
-                if (active) {
-                    ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_TabActive]);
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyle().Colors[ImGuiCol_TabActive]);
-                }
-                if (ImGui::Button(tabNames[i], {0,tbH})) app->tab = i;
-                if (active) ImGui::PopStyleColor(2);
-            }
-            int chCount = 0;
-            { std::lock_guard<std::mutex> g(app->chMu); chCount = (int)app->channels.size(); }
-            ImGui::SameLine(0,8);
-            ImGui::TextDisabled("%d ch", chCount);
-            ImGui::SameLine(0,6);
-            if (ImGui::SmallButton("SAT")) app->showSatPanel = true;
+            float fullW = ImGui::GetContentRegionAvail().x;
+            float listW = 280 * dpi;
+            float vidW  = fullW - listW - 8*dpi;
 
-            // ── Row 2: Search + Load/Refresh ──
-            float loadBtnW = 62*dpi, refBtnW = 68*dpi;
-            float btnArea2 = (connected && !busyCh) ? (loadBtnW + refBtnW + 12) 
-                           : (busyCh ? (134*dpi + 8) : 0);
-            float sW = ImGui::GetContentRegionAvail().x - btnArea2 - 4;
-            if (sW < 100) sW = 100;
-            ImGui::SetNextItemWidth(sW);
-            ImGui::InputTextWithHint("##s", "Search...", app->search, sizeof(app->search));
+            // ════ LEFT PANEL: Channel List ════
+            ImGui::BeginChild("##chlist_panel", {listW, 0}, true);
+            {
+                float tbH = 20*dpi;
 
-            if (connected && !busyCh) {
-                ImGui::SameLine(0,4);
-                if (ImGui::Button("Load", {loadBtnW,tbH})) {
-                    app->chLoading = true; app->chLoaded = false; app->chPct = 0;
-                    std::thread([app]() {
-                        try {
-                            app->log.add("Loading channels (cached)...");
-                            int n = app->client.requestChannelList(false);
-                            if (!app->chLoaded.load()) {
-                                std::lock_guard<std::mutex> g(app->chMu);
-                                app->channels = app->client.state().channels;
-                                app->chLoaded = true; app->chLoading = false; app->chPct = 100;
-                                app->log.add("Loaded " + std::to_string(n) + " channels");
-                            }
-                            app->saveCachedChannels();
-                        } catch (const std::exception& e) {
-                            CrashLog((std::string("load ch exception: ") + e.what()).c_str());
-                            app->chLoading = false;
-                        } catch (...) {
-                            CrashLog("load ch unknown exception");
-                            app->chLoading = false;
-                        }
-                    }).detach();
-                }
-                ImGui::SameLine(0,4);
-                if (ImGui::Button("Refresh", {refBtnW,tbH})) {
-                    app->chLoading = true; app->chLoaded = false; app->chPct = 0;
-                    std::thread([app]() {
-                        try {
-                            app->log.add("Refreshing channels from STB...");
-                            int n = app->client.requestChannelList(true);
-                            if (!app->chLoaded.load()) {
-                                std::lock_guard<std::mutex> g(app->chMu);
-                                app->channels = app->client.state().channels;
-                                app->chLoaded = true; app->chLoading = false; app->chPct = 100;
-                                app->log.add("Refreshed " + std::to_string(n) + " channels");
-                            }
-                            app->saveCachedChannels();
-                        } catch (const std::exception& e) {
-                            CrashLog((std::string("refresh ch exception: ") + e.what()).c_str());
-                            app->chLoading = false;
-                        } catch (...) {
-                            CrashLog("refresh ch unknown exception");
-                            app->chLoading = false;
-                        }
-                    }).detach();
-                }
-            } else if (busyCh) {
-                ImGui::SameLine(0,4);
-                ImGui::BeginDisabled();
-                ImGui::Button("Loading...", {130*dpi,tbH});
-                ImGui::EndDisabled();
-            }
-
-            // ── Row 3: Progress bar or spacer ──
-            if (busyCh)
-                ImGui::ProgressBar(app->chPct.load() / 100.0f, {-1, 3*dpi}, "");
-            else
-                ImGui::Spacing();
-
-            // SAFE copy of channels under lock
-            std::vector<stb::Channel> chSnap;
-            { std::lock_guard<std::mutex> g(app->chMu); chSnap = app->channels; }
-
-            // Sort
-            if (!chSnap.empty()) {
-                auto cmpLess = [&](const stb::Channel& a, const stb::Channel& b) -> bool {
-                    switch (app->sortCol) {
-                    case 1: return a.service_name < b.service_name;
-                    case 2: return a.frequency() < b.frequency();
-                    case 3: return (int)a.is_radio < (int)b.is_radio;
-                    case 8: return a.satellite_name < b.satellite_name;
-                    default: return a.service_index < b.service_index;
+                const char* tabNames[] = {"All","TV","Radio","Fav","FTA","Enc","Recent"};
+                const int tabCount = 7;
+                for (int i = 0; i < tabCount; i++) {
+                    if (i) ImGui::SameLine(0,2);
+                    bool active = (app->tab == i);
+                    if (active) {
+                        ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_TabActive]);
+                        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyle().Colors[ImGuiCol_TabActive]);
                     }
-                };
-                if (app->sortAsc)
-                    std::stable_sort(chSnap.begin(), chSnap.end(), cmpLess);
-                else
-                    std::stable_sort(chSnap.begin(), chSnap.end(),
-                        [&](const stb::Channel& a, const stb::Channel& b){ return cmpLess(b,a); });
-            }
+                    if (ImGui::Button(tabNames[i], {0,tbH})) app->tab = i;
+                    if (active) ImGui::PopStyleColor(2);
+                }
 
-            // Channel table with detailed columns
-            ImGui::BeginChild("##cht", {0,0}, false);
-            // Columns: #, Play, Name, Satellite, Freq, Type, HD, Enc, Mod, Fav
-            if (ImGui::BeginTable("##t", 11,
-                    ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
-                    ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp |
-                    ImGuiTableFlags_Resizable | ImGuiTableFlags_Sortable)) {
-                ImGui::TableSetupScrollFreeze(0, 1);
-                ImGui::TableSetupColumn("#",     ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_WidthFixed, 38*dpi, 0);
-                ImGui::TableSetupColumn("",      ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoSort | ImGuiTableColumnFlags_NoResize, 24*dpi, 10);
-                ImGui::TableSetupColumn("Name",  ImGuiTableColumnFlags_WidthStretch, 3.0f, 1);
-                ImGui::TableSetupColumn("Satellite", ImGuiTableColumnFlags_WidthFixed, 80*dpi, 8);
-                ImGui::TableSetupColumn("Freq",  ImGuiTableColumnFlags_WidthFixed, 54*dpi, 2);
-                ImGui::TableSetupColumn("SR",    ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoSort, 44*dpi, 9);
-                ImGui::TableSetupColumn("Type",  ImGuiTableColumnFlags_WidthFixed, 30*dpi, 3);
-                ImGui::TableSetupColumn("HD",    ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoSort, 22*dpi, 4);
-                ImGui::TableSetupColumn("Enc",   ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoSort, 34*dpi, 5);
-                ImGui::TableSetupColumn("Mod",   ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoSort, 46*dpi, 6);
-                ImGui::TableSetupColumn("Fav",   ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoSort, 20*dpi, 7);
-                ImGui::TableHeadersRow();
+                ImGui::SetNextItemWidth(-1);
+                ImGui::InputTextWithHint("##livesearch", "Search...", app->search, sizeof(app->search));
 
-                // Handle sort spec clicks
-                if (auto* specs = ImGui::TableGetSortSpecs()) {
-                    if (specs->SpecsDirty && specs->SpecsCount > 0) {
-                        app->sortCol = (int)specs->Specs[0].ColumnUserID;
-                        app->sortAsc = (specs->Specs[0].SortDirection == ImGuiSortDirection_Ascending);
-                        specs->SpecsDirty = false;
+                {
+                    int chCount = 0;
+                    { std::lock_guard<std::mutex> g(app->chMu); chCount = (int)app->channels.size(); }
+                    if (connected && !busyCh) {
+                        float bw = (ImGui::GetContentRegionAvail().x - 12) / 3.0f;
+                        if (ImGui::Button("Load##ch", {bw, tbH})) {
+                            app->chLoading = true; app->chLoaded = false; app->chPct = 0;
+                            std::thread([app]() {
+                                try {
+                                    app->log.add("Loading channels (cached)...");
+                                    int n = app->client.requestChannelList(false);
+                                    if (!app->chLoaded.load()) {
+                                        std::lock_guard<std::mutex> g(app->chMu);
+                                        app->channels = app->client.state().channels;
+                                        app->chLoaded = true; app->chLoading = false; app->chPct = 100;
+                                        app->log.add("Loaded " + std::to_string(n) + " channels");
+                                    }
+                                    app->saveCachedChannels();
+                                } catch (...) { app->chLoading = false; }
+                            }).detach();
+                        }
+                        ImGui::SameLine(0,4);
+                        if (ImGui::Button("Refresh##ch", {bw, tbH})) {
+                            app->chLoading = true; app->chLoaded = false; app->chPct = 0;
+                            std::thread([app]() {
+                                try {
+                                    app->log.add("Refreshing channels...");
+                                    int n = app->client.requestChannelList(true);
+                                    if (!app->chLoaded.load()) {
+                                        std::lock_guard<std::mutex> g(app->chMu);
+                                        app->channels = app->client.state().channels;
+                                        app->chLoaded = true; app->chLoading = false; app->chPct = 100;
+                                        app->log.add("Refreshed " + std::to_string(n) + " channels");
+                                    }
+                                    app->saveCachedChannels();
+                                } catch (...) { app->chLoading = false; }
+                            }).detach();
+                        }
+                        ImGui::SameLine(0,4);
+                        ImGui::TextDisabled("%d", chCount);
+                    } else if (busyCh) {
+                        ImGui::ProgressBar(app->chPct.load() / 100.0f, {-1, 3*dpi}, "");
+                    } else {
+                        ImGui::TextDisabled("%d channels", chCount);
+                        ImGui::SameLine(0, 4);
+                        if (ImGui::SmallButton("SAT##ch")) app->showSatPanel = true;
                     }
                 }
 
-                for (int i = 0; i < (int)chSnap.size(); i++) {
-                    auto& ch = chSnap[i];
-                    // Tab filter
-                    if (app->tab == 1 && ch.is_radio) continue;
-                    if (app->tab == 2 && !ch.is_radio) continue;
-                    if (app->tab == 3 && ch.fav_bit == 0) continue;
-                    if (app->tab == 4 && ch.is_scrambled) continue;
-                    if (app->tab == 5 && !ch.is_scrambled) continue;
-                    // Search filter
-                    std::string nm = ch.service_name.empty() ? ch.service_id : ch.service_name;
-                    if (nm.empty()) nm = "(ch " + std::to_string(ch.service_index) + ")";
-                    if (!StrMatch(nm.c_str(), app->search) &&
-                        !StrMatch(std::to_string(ch.service_index).c_str(), app->search) &&
-                        !StrMatch(std::to_string(ch.frequency()).c_str(), app->search) &&
-                        !StrMatch(ch.satellite_name.c_str(), app->search))
-                        continue;
-
-                    ImGui::TableNextRow();
-
-                    // # (index)
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::Text("%d", ch.service_index);
-
-                    // Play button
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::PushID(i);
-                    ImGui::PushStyleColor(ImGuiCol_Button, {0,0,0,0});
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.2f,0.5f,0.9f,0.40f});
-                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, {0.2f,0.5f,0.9f,0.70f});
-                    if (ImGui::SmallButton(">")) {
-                        if (connected) {
-                            const int tvst = ch.is_radio ? 1 : 0;
-                            bool ok = false;
+                if (isRunning) {
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.75f, 0.22f, 0.22f, 0.85f});
+                    if (ImGui::Button("Stop##live", {-1, tbH})) {
+                        app->liveTuning = false;
+                        app->liveSelectedCh = -1;
+                        std::weak_ptr<App> wstop = app;
+                        std::thread([wstop]{
                             try {
-                                if (!ch.service_id.empty())
-                                    ok = app->client.changeChannelDirect(ch.service_id, tvst);
-                                if (!ok && !ch.program_id.empty() && ch.program_id != ch.service_id)
-                                    ok = app->client.changeChannelDirect(ch.program_id, tvst);
-                                if (!ok)
-                                    ok = app->client.changeChannel(ch.service_index);
+                                auto sp = wstop.lock(); if (!sp) return;
+                                sp->rtspViewer.stop();
+                                try { if (sp->client.isConnected()) sp->client.sat2ipStop(); } catch (...) {}
                             } catch (...) {}
-                            if (ok) {
-                                app->log.add("[play] " + nm);
-                                const std::string sid = ch.service_id;
-                                const int ts2 = tvst;
-                                std::thread([app, sid, ts2]() {
-                                    std::this_thread::sleep_for(std::chrono::milliseconds(700));
-                                    try { app->client.changeChannelDirect(sid, ts2); } catch (...) {}
-                                }).detach();
-                            } else {
-                                app->log.add("[play] failed for " + nm);
-                            }
-                        }
+                        }).detach();
                     }
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Play on STB");
-                    ImGui::PopStyleColor(3);
-                    ImGui::PopID();
+                    ImGui::PopStyleColor();
+                } else if (app->liveTuning) {
+                    ImGui::TextColored({0.95f, 0.75f, 0.10f, 1.0f}, "Tuning...");
+                }
 
-                    // Name
-                    ImGui::TableSetColumnIndex(2);
-                    char selId[256];
-                    snprintf(selId, sizeof(selId), "%s##ch%d", nm.c_str(), i);
-                    if (ImGui::Selectable(selId, app->sel == i,
-                            ImGuiSelectableFlags_AllowDoubleClick)) {
-                        app->sel = i;
-                        if (ImGui::IsMouseDoubleClicked(0)) {
-                            app->detailIdx = i;
-                            app->showDetail = true;
-                        }
-                    }
-                    // Right-click: add to custom list
-                    if (ImGui::BeginPopupContextItem()) {
-                        auto& cls = app->customLists.lists;
-                        if (cls.empty()) {
-                            ImGui::TextDisabled("No custom lists - create one first");
-                        } else {
-                            ImGui::TextDisabled("Add to list:");
-                            for (int li = 0; li < (int)cls.size(); li++) {
-                                char mlbl[128];
-                                snprintf(mlbl, sizeof(mlbl), "%s##addcl%d", cls[li].title.c_str(), li);
-                                if (ImGui::MenuItem(mlbl)) {
-                                    stb::CustomListEntry ce;
-                                    ce.service_id = ch.service_id;
-                                    ce.name = nm;
-                                    ce.service_index = ch.service_index;
-                                    ce.is_radio = ch.is_radio;
-                                    cls[li].entries.push_back(std::move(ce));
-                                    app->clDirty = true;
-                                    app->log.add("[+list] " + nm + " -> " + cls[li].title);
+                ImGui::Separator();
+
+                int clickedChIdx = -1;
+                ImGui::BeginChild("##chscroll", {0, 0});
+                {
+                    if (app->tab == 6) {
+                        for (int ri = 0; ri < (int)app->recentChannels.size(); ri++) {
+                            auto& rc = app->recentChannels[ri];
+                            char lb[256]; snprintf(lb, sizeof(lb), "%d. %s##rc%d", rc.service_index, rc.name.c_str(), ri);
+                            bool isSel = (app->rtspProgramId == rc.service_id && isRunning);
+                            if (isSel) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.2f, 0.9f, 0.4f, 1.0f});
+                            if (ImGui::Selectable(lb, isSel) && !app->liveTuning) {
+                                std::lock_guard<std::mutex> g(app->chMu);
+                                for (int ci = 0; ci < (int)app->channels.size(); ci++) {
+                                    if (app->channels[ci].service_id == rc.service_id) { clickedChIdx = ci; break; }
                                 }
                             }
+                            if (isSel) ImGui::PopStyleColor();
                         }
-                        ImGui::EndPopup();
+                        if (app->recentChannels.empty()) ImGui::TextDisabled("No recent channels yet.");
+                    } else {
+                        std::lock_guard<std::mutex> g(app->chMu);
+                        std::string flt;
+                        if (app->search[0]) { flt = app->search; for (auto& c : flt) c = (char)tolower((unsigned char)c); }
+                        for (int i = 0; i < (int)app->channels.size(); i++) {
+                            const auto& ch = app->channels[i];
+                            if (app->tab == 1 && ch.is_radio) continue;
+                            if (app->tab == 2 && !ch.is_radio) continue;
+                            if (app->tab == 3 && ch.fav_bit == 0) continue;
+                            if (app->tab == 4 && ch.is_scrambled) continue;
+                            if (app->tab == 5 && !ch.is_scrambled) continue;
+                            if (!flt.empty()) {
+                                std::string n = ch.service_name; for (auto& c : n) c = (char)tolower((unsigned char)c);
+                                std::string idx = std::to_string(ch.service_index);
+                                if (n.find(flt) == std::string::npos && idx.find(flt) == std::string::npos) continue;
+                            }
+                            bool isSel = (i == app->liveSelectedCh);
+                            char lb[256];
+                            const char* hd = ch.is_hd ? " HD" : "";
+                            const char* enc = ch.is_scrambled ? " $" : "";
+                            const char* typ = ch.is_radio ? " [R]" : "";
+                            snprintf(lb, sizeof(lb), "%d. %s%s%s%s##lch%d", ch.service_index, ch.service_name.c_str(), hd, enc, typ, i);
+                            if (isSel) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.2f, 0.9f, 0.4f, 1.0f});
+                            if (ImGui::Selectable(lb, isSel) && !app->liveTuning) clickedChIdx = i;
+                            if (isSel) ImGui::PopStyleColor();
+                            if (ImGui::BeginPopupContextItem()) {
+                                if (ImGui::MenuItem("Channel Details")) { app->detailIdx = i; app->showDetail = true; }
+                                ImGui::Separator();
+                                auto& cls = app->customLists.lists;
+                                if (!cls.empty()) {
+                                    ImGui::TextDisabled("Add to list:");
+                                    for (int li = 0; li < (int)cls.size(); li++) {
+                                        char mlbl[128]; snprintf(mlbl, sizeof(mlbl), "%s##addcl%d", cls[li].title.c_str(), li);
+                                        if (ImGui::MenuItem(mlbl)) {
+                                            stb::CustomListEntry ce; ce.service_id = ch.service_id; ce.name = ch.service_name;
+                                            ce.service_index = ch.service_index; ce.is_radio = ch.is_radio;
+                                            cls[li].entries.push_back(std::move(ce)); app->clDirty = true;
+                                        }
+                                    }
+                                }
+                                ImGui::EndPopup();
+                            }
+                        }
                     }
-
-                    // Satellite
-                    ImGui::TableSetColumnIndex(3);
-                    if (!ch.satellite_name.empty())
-                        ImGui::TextDisabled("%s", ch.satellite_name.c_str());
-
-                    // Freq (full MHz)
-                    ImGui::TableSetColumnIndex(4);
-                    {
-                        int freq = ch.frequency();
-                        if (freq > 0)
-                            ImGui::TextDisabled("%d", freq);
-                    }
-
-                    // Symbol Rate (from service_id tp_index portion)
-                    ImGui::TableSetColumnIndex(5);
-                    if (ch.pmt_pid > 0)
-                        ImGui::TextDisabled("%d", ch.pmt_pid);
-
-                    // Type
-                    ImGui::TableSetColumnIndex(6);
-                    ImGui::TextDisabled(ch.is_radio ? "R" : "TV");
-
-                    // HD
-                    ImGui::TableSetColumnIndex(7);
-                    if (ch.is_hd)
-                        ImGui::TextColored({0.4f,0.8f,1.0f,1.0f}, "HD");
-
-                    // Enc
-                    ImGui::TableSetColumnIndex(8);
-                    if (ch.is_scrambled)
-                        ImGui::TextColored({0.95f,0.55f,0.15f,1.0f}, "ENC");
-                    else
-                        ImGui::TextColored({0.3f,0.8f,0.3f,0.7f}, "FTA");
-
-                    // Modulation
-                    ImGui::TableSetColumnIndex(9);
-                    ImGui::TextDisabled("%s", ch.modulationSystemStr().c_str());
-
-                    // Fav
-                    ImGui::TableSetColumnIndex(10);
-                    if (ch.fav_bit != 0)
-                        ImGui::TextColored({1.0f,0.85f,0.0f,1.0f}, "*");
                 }
-                ImGui::EndTable();
+                ImGui::EndChild();
+
+                if (clickedChIdx >= 0) {
+                    app->liveSelectedCh = clickedChIdx;
+                    app->liveTuning = true;
+                    std::string sid, chName, url;
+                    bool chRadio = false; int chSvcIdx = 0;
+                    {
+                        std::lock_guard<std::mutex> g(app->chMu);
+                        if (clickedChIdx < (int)app->channels.size()) {
+                            const auto& ch = app->channels[clickedChIdx];
+                            sid = ch.service_id; chName = ch.service_name;
+                            chRadio = ch.is_radio; chSvcIdx = ch.service_index;
+                            auto cfg = stb::RtspViewer::extractChannelParams(ch);
+                            { std::lock_guard<std::mutex> gt(app->tpMu);
+                              for (const auto& tp : app->transponders) {
+                                if (tp.sat_index == cfg.sat_index && tp.tp_index == cfg.tp_index) {
+                                    cfg.freq = tp.freq; cfg.sym_rate = tp.sym_rate; cfg.fec = tp.fec; cfg.pol = tp.pol; break;
+                                }
+                              }
+                            }
+                            url = stb::RtspViewer::generateMediaStarUrl(app->ip, cfg);
+                        }
+                    }
+                    if (!url.empty()) {
+                        app->addRecentChannel(sid, chName, chSvcIdx, chRadio);
+                        snprintf(app->rtspUrl, sizeof(app->rtspUrl), "%s", url.c_str());
+                        app->rtspProgramId = sid;
+                        app->log.add("[LiveTV] " + chName);
+                        std::weak_ptr<App> wapp = app;
+                        std::string urlCopy = url, sidCopy = sid;
+                        std::thread([wapp, urlCopy, sidCopy]{
+                            try {
+                                auto sp = wapp.lock(); if (!sp || sp->down) return;
+                                sp->rtspViewer.stop();
+                                try { if (sp->client.isConnected()) sp->client.sat2ipStop(); } catch (...) {}
+                                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                                if (sp->down) return;
+                                sp->rtspViewer.onLog = [wapp](const std::string& msg) {
+                                    try { auto s2 = wapp.lock(); if (s2 && !s2->down) s2->log.add(msg); } catch (...) {}
+                                };
+                                stb::RtspViewerConfig rcfg; rcfg.url = urlCopy; rcfg.tcp_transport = false;
+                                sp->rtspViewer.start(rcfg);
+                                try { if (sp->client.isConnected()) sp->client.sat2ipChannelPlay(sidCopy, 0); } catch (...) {}
+                                sp->liveTuning = false;
+                            } catch (...) {
+                                try { auto sp = wapp.lock(); if (sp) sp->liveTuning = false; } catch (...) {}
+                            }
+                        }).detach();
+                    } else { app->liveTuning = false; }
+                }
+            }
+            ImGui::EndChild();
+
+            ImGui::SameLine(0, 8*dpi);
+
+            // ════ RIGHT PANEL: Video + Status + PiP ════
+            ImGui::BeginChild("##video_panel", {vidW, 0}, true);
+            {
+                if (isRunning) {
+                    if (hasVideo) {
+                        ImGui::TextColored({0.38f, 0.88f, 0.38f, 1.0f}, "LIVE");
+                        ImGui::SameLine(0, 8);
+                        ImGui::TextDisabled("%dx%d %.1ffps %dkbps",
+                            rvStats.width.load(), rvStats.height.load(),
+                            rvStats.fps.load(), rvStats.bitrate_kbps.load());
+                    } else if (rvStats.connected.load()) {
+                        ImGui::TextColored({0.95f, 0.75f, 0.10f, 1.0f}, "Waiting for video...");
+                    } else {
+                        ImGui::TextColored({0.95f, 0.75f, 0.10f, 1.0f}, "CONNECTING...");
+                    }
+                } else {
+                    std::string err = rvStats.getError();
+                    if (!err.empty())
+                        ImGui::TextColored({0.95f, 0.42f, 0.38f, 1.0f}, "%s", err.c_str());
+                    else
+                        ImGui::TextDisabled("Select a channel to start Live TV");
+                }
+                {
+                    float px = ImGui::GetContentRegionAvail().x;
+                    if (px > 50*dpi) { ImGui::SameLine(px - 40*dpi); }
+                    if (ImGui::SmallButton("PiP")) {
+                        // Save current window rect, then enter PiP
+                        GetWindowRect(app->mainHwnd, &app->pipSavedRect);
+                        app->pipMode = true;
+                        const int szW[] = {400, 600, 840};
+                        const int szH[] = {260, 380, 520};
+                        int si = app->pipSize;
+                        int sx = GetSystemMetrics(SM_CXSCREEN);
+                        int sy = GetSystemMetrics(SM_CYSCREEN);
+                        SetWindowPos(app->mainHwnd, HWND_TOPMOST,
+                            sx - szW[si] - 10, sy - szH[si] - 50, szW[si], szH[si], 0);
+                    }
+                }
+                ImGui::Separator();
+
+                ImVec2 videoSize = ImGui::GetContentRegionAvail();
+                if (hasVideo) {
+                    ID3D11ShaderResourceView* srv = app->rtspViewer.getTextureSRV();
+                    if (srv) {
+                        int srcW = rvStats.width.load(), srcH = rvStats.height.load();
+                        float aspectSrc = (srcH > 0) ? (float)srcW / (float)srcH : 16.0f/9.0f;
+                        float aspectDst = (videoSize.y > 0) ? videoSize.x / videoSize.y : 1.0f;
+                        float drawW, drawH;
+                        if (aspectSrc > aspectDst) { drawW = videoSize.x; drawH = videoSize.x / aspectSrc; }
+                        else                       { drawH = videoSize.y; drawW = videoSize.y * aspectSrc; }
+                        float offX = (videoSize.x - drawW) * 0.5f;
+                        float offY = (videoSize.y - drawH) * 0.5f;
+                        ImGui::SetCursorPos({ImGui::GetCursorPos().x + offX, ImGui::GetCursorPos().y + offY});
+                        ImGui::Image((ImTextureID)srv, {drawW, drawH});
+                    }
+                } else if (!ffmpegAvailable) {
+                    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + videoSize.y * 0.3f);
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.95f, 0.75f, 0.10f, 1.0f});
+                    ImGui::TextWrapped("FFmpeg DLLs not found.");
+                    ImGui::PopStyleColor();
+                } else if (isRunning) {
+                    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + videoSize.y * 0.35f);
+                    ImGui::TextColored({0.6f, 0.6f, 0.6f, 1.0f}, "Waiting for video stream...");
+                } else {
+                    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + videoSize.y * 0.3f);
+                    ImGui::TextDisabled("Select a channel from the list to start Live TV.");
+                    ImGui::Spacing();
+                    ImGui::TextDisabled("The STB will tune the transponder.");
+                    ImGui::TextDisabled("Video will appear once the stream is ready.");
+                }
             }
             ImGui::EndChild();
         }
         ImGui::End();
-        } // end mainTab == 0 (Channels)
+        } // end mainTab == 0 (Channels + Live)
 
         // ════════════════════════════════════════════════════════════════
         // CHANNEL DETAIL POPUP
@@ -4076,208 +4260,6 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
             ImGui::End();
         }
 
-        // ════════════════════════════════════════════════════════════════
-        // ── TAB 3: LIVE TV ──
-        // ════════════════════════════════════════════════════════════════
-        if (app->mainTab == 3) {
-            ImGui::SetNextWindowPos({OX+P, OY+P+CONN_H+P});
-            ImGui::SetNextWindowSize({LW, CH_H});
-            if (ImGui::Begin("##livetv_docked", nullptr,
-                ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) {
-                
-                app->rtspViewer.pump();
-                bool isRunning = app->rtspViewer.isRunning();
-                bool hasVideo  = app->rtspViewer.hasVideo();
-                auto& stats    = app->rtspViewer.getStats();
-                static bool ffmpegAvailable = stb::RtspViewer::isFFmpegAvailable();
-
-                float fullW = ImGui::GetContentRegionAvail().x;
-                float listW = 220 * dpi;
-                float vidW  = fullW - listW - 8*dpi;
-
-                // ════════════════════════════════════════════
-                // LEFT PANEL: Channel List
-                // ════════════════════════════════════════════
-                ImGui::BeginChild("##live_chlist", {listW, 0}, true);
-                {
-                    // Status line
-                    if (ffmpegAvailable) {
-                        ImGui::TextColored({0.38f, 0.88f, 0.38f, 1.0f}, "[FFmpeg OK]");
-                    } else {
-                        ImGui::TextColored({0.95f, 0.75f, 0.10f, 1.0f}, "[No FFmpeg]");
-                    }
-                    ImGui::SameLine();
-                    if (isRunning) {
-                        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.75f, 0.22f, 0.22f, 0.85f});
-                        if (ImGui::Button("Stop##live", {50*dpi, 0})) {
-                            app->liveTuning = false;
-                            app->liveSelectedCh = -1;
-                            std::weak_ptr<App> wstop = app;
-                            std::thread([wstop]{
-                                try {
-                                    auto sp = wstop.lock(); if (!sp) return;
-                                    sp->rtspViewer.stop();
-                                    try { if (sp->client.isConnected()) sp->client.sat2ipStop(); } catch (...) {}
-                                } catch (...) {}
-                            }).detach();
-                        }
-                        ImGui::PopStyleColor();
-                    } else if (app->liveTuning) {
-                        ImGui::TextColored({0.95f, 0.75f, 0.10f, 1.0f}, "Tuning...");
-                    }
-
-                    // Filter
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::InputTextWithHint("##livefilter", "Filter...", app->liveFilter, sizeof(app->liveFilter));
-
-                    ImGui::Separator();
-
-                    // Channel list — only UI here, heavy work in background thread
-                    int clickedChIdx = -1;
-                    ImGui::BeginChild("##live_chscroll", {0, 0});
-                    {
-                        std::lock_guard<std::mutex> g(app->chMu);
-                        std::string flt;
-                        if (app->liveFilter[0]) { flt = app->liveFilter; for (auto& c : flt) c = (char)tolower((unsigned char)c); }
-                        for (int i = 0; i < (int)app->channels.size(); i++) {
-                            const auto& ch = app->channels[i];
-                            if (ch.is_radio) continue;
-                            if (!flt.empty()) { std::string n = ch.service_name; for (auto& c : n) c = (char)tolower((unsigned char)c); if (n.find(flt) == std::string::npos) continue; }
-                            bool isSel = (i == app->liveSelectedCh);
-                            char lb[256]; snprintf(lb, sizeof(lb), "%d. %s##lch%d", ch.service_index, ch.service_name.c_str(), i);
-                            if (isSel) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.2f, 0.9f, 0.4f, 1.0f});
-                            if (ImGui::Selectable(lb, isSel) && !app->liveTuning) clickedChIdx = i;
-                            if (isSel) ImGui::PopStyleColor();
-                        }
-                    }
-                    ImGui::EndChild();
-
-                    // Launch background thread if channel was clicked
-                    if (clickedChIdx >= 0) {
-                        app->liveSelectedCh = clickedChIdx;
-                        app->liveTuning = true;
-                        // Capture needed data outside lock
-                        std::string sid, chName, url;
-                        {
-                            std::lock_guard<std::mutex> g(app->chMu);
-                            if (clickedChIdx < (int)app->channels.size()) {
-                                const auto& ch = app->channels[clickedChIdx];
-                                sid = ch.service_id; chName = ch.service_name;
-                                auto cfg = stb::RtspViewer::extractChannelParams(ch);
-                                { std::lock_guard<std::mutex> gt(app->tpMu);
-                                  for (const auto& tp : app->transponders) {
-                                    if (tp.sat_index == cfg.sat_index && tp.tp_index == cfg.tp_index) {
-                                        cfg.freq = tp.freq; cfg.sym_rate = tp.sym_rate; cfg.fec = tp.fec; cfg.pol = tp.pol; break;
-                                    }
-                                  }
-                                }
-                                url = stb::RtspViewer::generateMediaStarUrl(app->ip, cfg);
-                            }
-                        }
-                        if (!url.empty()) {
-                            snprintf(app->rtspUrl, sizeof(app->rtspUrl), "%s", url.c_str());
-                            app->rtspProgramId = sid;
-                            app->log.add("[LiveTV] " + chName);
-                            std::weak_ptr<App> wapp = app;
-                            std::string urlCopy = url, sidCopy = sid;
-                            std::thread([wapp, urlCopy, sidCopy]{
-                                try {
-                                    auto sp = wapp.lock(); if (!sp || sp->down) return;
-                                    // 1) Stop old stream
-                                    sp->rtspViewer.stop();
-                                    try { if (sp->client.isConnected()) sp->client.sat2ipStop(); } catch (...) {}
-                                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-                                    if (sp->down) return;
-                                    // 2) Set up log callback + start RTSP
-                                    sp->rtspViewer.onLog = [wapp](const std::string& msg) {
-                                        try { auto s2 = wapp.lock(); if (s2 && !s2->down) s2->log.add(msg); } catch (...) {}
-                                    };
-                                    stb::RtspViewerConfig rcfg; rcfg.url = urlCopy; rcfg.tcp_transport = false;
-                                    sp->rtspViewer.start(rcfg);
-                                    // 3) Tell STB to tune channel
-                                    try { if (sp->client.isConnected()) sp->client.sat2ipChannelPlay(sidCopy, 0); } catch (...) {}
-                                    sp->liveTuning = false;
-                                } catch (...) {
-                                    try { auto sp = wapp.lock(); if (sp) sp->liveTuning = false; } catch (...) {}
-                                }
-                            }).detach();
-                        } else { app->liveTuning = false; }
-                    }
-                }
-                ImGui::EndChild();
-
-                ImGui::SameLine(0, 8*dpi);
-
-                // ════════════════════════════════════════════
-                // RIGHT PANEL: Video + Status
-                // ════════════════════════════════════════════
-                ImGui::BeginChild("##live_video", {vidW, 0}, true);
-                {
-                    // ── Status bar ──
-                    if (isRunning) {
-                        if (hasVideo) {
-                            ImGui::TextColored({0.38f, 0.88f, 0.38f, 1.0f}, "STREAMING");
-                            ImGui::SameLine(0, 10);
-                            ImGui::TextDisabled("%dx%d %.1ffps %dkbps",
-                                stats.width.load(), stats.height.load(),
-                                stats.fps.load(), stats.bitrate_kbps.load());
-                            ImGui::SameLine(0, 10);
-                            ImGui::TextDisabled("RTP %llu (late %llu skip %llu) TS pend %llub",
-                                (unsigned long long)stats.rtp_packets.load(),
-                                (unsigned long long)stats.rtp_late_drops.load(),
-                                (unsigned long long)stats.rtp_gap_skips.load(),
-                                (unsigned long long)stats.ts_pending_bytes.load());
-                        } else if (stats.connected.load()) {
-                            ImGui::TextColored({0.95f, 0.75f, 0.10f, 1.0f}, "Waiting for video...");
-                        } else {
-                            ImGui::TextColored({0.95f, 0.75f, 0.10f, 1.0f}, "CONNECTING...");
-                        }
-                    } else {
-                        std::string err = stats.getError();
-                        if (!err.empty()) {
-                            ImGui::TextColored({0.95f, 0.42f, 0.38f, 1.0f}, "%s", err.c_str());
-                        } else {
-                            ImGui::TextDisabled("Select a channel to start Live TV");
-                        }
-                    }
-                    ImGui::Separator();
-
-                    // ── Video display ──
-                    ImVec2 videoSize = ImGui::GetContentRegionAvail();
-                    if (hasVideo) {
-                        ID3D11ShaderResourceView* srv = app->rtspViewer.getTextureSRV();
-                        if (srv) {
-                            int srcW = stats.width.load(), srcH = stats.height.load();
-                            float aspectSrc = (srcH > 0) ? (float)srcW / (float)srcH : 16.0f/9.0f;
-                            float aspectDst = videoSize.x / videoSize.y;
-                            float drawW, drawH;
-                            if (aspectSrc > aspectDst) { drawW = videoSize.x; drawH = videoSize.x / aspectSrc; }
-                            else                       { drawH = videoSize.y; drawW = videoSize.y * aspectSrc; }
-                            float offX = (videoSize.x - drawW) * 0.5f;
-                            float offY = (videoSize.y - drawH) * 0.5f;
-                            ImGui::SetCursorPos({ImGui::GetCursorPos().x + offX, ImGui::GetCursorPos().y + offY});
-                            ImGui::Image((ImTextureID)srv, {drawW, drawH});
-                        }
-                    } else if (!ffmpegAvailable) {
-                        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + videoSize.y * 0.3f);
-                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.95f, 0.75f, 0.10f, 1.0f});
-                        ImGui::TextWrapped("FFmpeg DLLs not found. Install: pacman -S mingw-w64-ucrt-x86_64-ffmpeg");
-                        ImGui::PopStyleColor();
-                    } else if (isRunning) {
-                        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + videoSize.y * 0.35f);
-                        ImGui::TextColored({0.6f, 0.6f, 0.6f, 1.0f}, "Waiting for video stream...");
-                    } else {
-                        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + videoSize.y * 0.3f);
-                        ImGui::TextDisabled("Select a channel from the list to start streaming.");
-                        ImGui::Spacing();
-                        ImGui::TextDisabled("The STB will tune the transponder (dish may rotate).");
-                        ImGui::TextDisabled("Video will appear once the stream is ready.");
-                    }
-                }
-                ImGui::EndChild();
-            }
-            ImGui::End();
-        }
 
         // ════════════════════════════════════════════════════════════════
         // CCcam LOG VIEWER
@@ -4493,6 +4475,7 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                 IM_COL32(140, 140, 140, 180), credit);
         }
 
+        pip_end_frame: // PiP mode jumps here to skip normal UI
         // ── Render ──────────────────────────────────────────────────────
         try {
             ImGui::Render();

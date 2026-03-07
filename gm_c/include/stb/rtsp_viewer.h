@@ -642,13 +642,13 @@ public:
         size_t off = 0;
         while (off < bytes) {
             int idx = -1;
-            // Wait up to 200ms for a free buffer (don't drop audio)
-            for (int attempt = 0; attempt < 200; attempt++) {
+            // Wait up to 20ms for a free buffer — short enough to not stall video decode
+            for (int attempt = 0; attempt < 20; attempt++) {
                 idx = findFree_();
                 if (idx >= 0) break;
                 Sleep(1);
             }
-            if (idx < 0) return; // safety: give up after 200ms
+            if (idx < 0) return; // rare: give up to avoid stalling video
 
             WAVEHDR& hdr = hdrs_[idx];
             size_t n = bytes - off;
@@ -669,8 +669,8 @@ private:
         return -1;
     }
 
-    static constexpr int NUM_BUFS = 16;
-    static constexpr size_t BUF_BYTES = 16384;
+    static constexpr int NUM_BUFS = 6;
+    static constexpr size_t BUF_BYTES = 8192;
 
     HWAVEOUT hwo_ = nullptr;
     bool opened_ = false;
@@ -831,6 +831,9 @@ public:
             if (frameQ_.front().due > now) return;
             // Drop frames that are already late (keep the most recent one that's due)
             while (frameQ_.size() > 1 && frameQ_[1].due <= now) {
+                // Return dropped buffer to pool
+                if (framePool_.size() < MAX_FRAME_POOL)
+                    framePool_.push_back(std::move(frameQ_.front().bgra));
                 frameQ_.pop_front();
                 stats_.frames_dropped++;
             }
@@ -856,6 +859,13 @@ public:
             stats_.has_video = true;
             stats_.width = w;
             stats_.height = h;
+        }
+
+        // Return presented buffer to pool for reuse
+        {
+            std::lock_guard<std::mutex> g(frameMu_);
+            if (framePool_.size() < MAX_FRAME_POOL)
+                framePool_.push_back(std::move(snap));
         }
     }
     
@@ -1848,10 +1858,20 @@ private:
                             item.h = dstH;
                             item.stride = outFrame->linesize[0];
 
-                            // Obtain reusable BGRA buffer from pool (or allocate once)
-                            std::vector<uint8_t> buf(outBuf.size());
-                            memcpy(buf.data(), outBuf.data(), outBuf.size());
-                            item.bgra = std::move(buf);
+                            // Obtain reusable BGRA buffer from pool (or allocate new)
+                            {
+                                std::vector<uint8_t> buf;
+                                {
+                                    std::lock_guard<std::mutex> gp(frameMu_);
+                                    if (!framePool_.empty()) {
+                                        buf = std::move(framePool_.back());
+                                        framePool_.pop_back();
+                                    }
+                                }
+                                if (buf.size() < outBuf.size()) buf.resize(outBuf.size());
+                                memcpy(buf.data(), outBuf.data(), outBuf.size());
+                                item.bgra = std::move(buf);
+                            }
 
                             {
                                 std::lock_guard<std::mutex> g(frameMu_);
@@ -2050,7 +2070,9 @@ private:
         std::vector<uint8_t> bgra;
     };
     static constexpr size_t MAX_FRAME_QUEUE = 8;
+    static constexpr size_t MAX_FRAME_POOL = 4;
     std::deque<FrameItem> frameQ_;
+    std::vector<std::vector<uint8_t>> framePool_; // reusable BGRA buffers
     bool qHaveClock_ = false;
     int64_t qBasePts_ = 0;
     std::chrono::steady_clock::time_point qBaseWall_{};
