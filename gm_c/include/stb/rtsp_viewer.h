@@ -140,7 +140,7 @@ public:
         Diag     diag;
     };
 
-    RtpTsBuffer() : buf_(RING_SIZE) {}
+    RtpTsBuffer() : buf_(RING_SIZE), slots_(REORDER_WIN) {}
 
     Diag getDiag() const {
         Diag d;
@@ -208,7 +208,36 @@ public:
         }
 
         wHead_ = 0; rHead_ = 0;
+        tsPending_.clear();
+        tsPendingOff_ = 0;
+        tsPendingBytes_.store(0);
+        needTsSync_ = false;
         haveFirstRx_ = false;
+        rateBytes_ = 0;
+        rateStartMs_ = 0;
+        rxBps_.store(0);
+        stableBps_.store(0);
+        haveSeq_ = false;
+        expectSeq_ = 0;
+        maxSeq_ = 0;
+        missCount_ = 0;
+        gapActive_ = false;
+        gapSeq_ = 0;
+        skipsWithoutProduce_ = 0;
+        rtpPackets_.store(0);
+        rtpLateDrops_.store(0);
+        rtpGapSkips_.store(0);
+        rtpTruncations_.store(0);
+        rtpSlotTruncations_.store(0);
+        rtpExtPackets_.store(0);
+        rtpExtFallback_.store(0);
+        rtpExtBad_.store(0);
+        rtpResyncs_.store(0);
+        tsPackets_.store(0);
+        avioRefillEvents_.store(0);
+        avioRefillWaitMsTotal_.store(0);
+        lastRtpWallMs_.store(0);
+        for (auto& slot : slots_) slot.valid = false;
         started_ = true;
         rxThread_ = std::thread([this]{ rxLoop_(); });
         return true;
@@ -520,7 +549,7 @@ private:
             if (n == (int)sizeof(pkt)) rtpTruncations_++;
             rtpPackets_++;
             rxCount++;
-            processRtpToTs_(pkt, n);
+            reorderPush_(pkt, n);
         }
     }
 
@@ -1492,7 +1521,7 @@ private:
     std::string writeSdpFile_(const std::string& stbHost, int rtpPort) {
         // Write to a temp file next to exe
         std::string dir = exeDir_();
-        std::string sdpPath = (dir.empty() ? "." : dir) + "\\gmscreen_rtp.sdp";
+        std::string sdpPath = (dir.empty() ? "." : dir) + "\\my4030_rtp.sdp";
 
         std::ofstream f(sdpPath, std::ios::trunc);
         if (!f.is_open()) return "";
@@ -1519,6 +1548,26 @@ private:
         Sat2ipSession sess;
         RtpTsBuffer rtpBuf;
         AVIOContext* avioCtx = nullptr;
+        struct AudioChunk {
+            int sampleRate = 0;
+            int channels = 0;
+            std::vector<uint8_t> pcm;
+        };
+        WaveOutPlayer audioOut;
+        std::mutex audioMu;
+        std::condition_variable audioCv;
+        std::deque<AudioChunk> audioQ;
+        size_t audioQueuedBytes = 0;
+        static constexpr size_t MAX_AUDIO_QUEUE_BYTES = 128 * 1024;
+        static constexpr size_t TARGET_AUDIO_QUEUE_BYTES = 64 * 1024;
+        std::atomic<bool> audioStop{false};
+        std::thread audioThread;
+        auto stopAudio_ = [&]() {
+            audioStop = true;
+            audioCv.notify_all();
+            if (audioThread.joinable()) audioThread.join();
+            audioOut.close();
+        };
         try {
             log_("[RTSP] SAT>IP worker starting: " + config_.url);
 
@@ -1652,7 +1701,6 @@ private:
             const AVCodec* adec = nullptr;
             SwrContext* swr = nullptr;
             AVFrame* aFrame = nullptr;
-            WaveOutPlayer audioOut;
 
             {
                 log_("[SAT2IP] Discovering streams from MPEG-TS...");
@@ -1708,7 +1756,7 @@ private:
             cc = avcodec_alloc_context3(dec);
             avcodec_parameters_to_context(cc, vs->codecpar);
             cc->err_recognition = 0;
-            cc->thread_count = 1;
+            cc->thread_count = 0;
             cc->skip_frame = AVDISCARD_DEFAULT;
             err = avcodec_open2(cc, dec, nullptr);
             if (err < 0) {
@@ -1740,7 +1788,7 @@ private:
                 acc = avcodec_alloc_context3(adec);
                 if (!acc) return;
                 avcodec_parameters_to_context(acc, as->codecpar);
-                acc->thread_count = 1;
+                acc->thread_count = 0;
                 int aerr = avcodec_open2(acc, adec, nullptr);
                 if (aerr < 0) {
                     avcodec_free_context(&acc);
@@ -1752,6 +1800,30 @@ private:
 
             // Try once here, and again later during decode loop if it wasn't discovered yet.
             tryInitAudio();
+
+            audioThread = std::thread([&] {
+                while (!audioStop.load()) {
+                    AudioChunk chunk;
+                    {
+                        std::unique_lock<std::mutex> lk(audioMu);
+                        audioCv.wait_for(lk, std::chrono::milliseconds(20), [&] {
+                            return audioStop.load() || !audioQ.empty();
+                        });
+                        if (audioStop.load() && audioQ.empty()) break;
+                        if (audioQ.empty()) continue;
+                        chunk = std::move(audioQ.front());
+                        audioQueuedBytes -= chunk.pcm.size();
+                        audioQ.pop_front();
+                    }
+                    if (!audioOut.isOpen() || audioOut.sampleRate() != chunk.sampleRate || audioOut.channels() != chunk.channels) {
+                        audioOut.close();
+                        audioOut.open(chunk.sampleRate, chunk.channels);
+                    }
+                    if (audioOut.isOpen() && !chunk.pcm.empty()) {
+                        audioOut.submit(chunk.pcm.data(), chunk.pcm.size());
+                    }
+                }
+            });
 
             int dstW = (config_.target_width > 0) ? config_.target_width : cc->width;
             int dstH = (config_.target_height > 0) ? config_.target_height : cc->height;
@@ -1770,7 +1842,7 @@ private:
                 dstH = (config_.target_height > 0) ? config_.target_height : srcH;
                 sws = sws_getContext(srcW, srcH, cc->pix_fmt,
                     dstW, dstH, AV_PIX_FMT_BGRA,
-                    SWS_BILINEAR, nullptr, nullptr, nullptr);
+                    SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
                 int bufSize = av_image_get_buffer_size(AV_PIX_FMT_BGRA, dstW, dstH, 1);
                 outBuf.resize(bufSize > 0 ? (size_t)bufSize : 0);
                 if (!outBuf.empty())
@@ -1880,6 +1952,7 @@ private:
                                 fi.h = item.h;
                                 fi.stride = item.stride;
                                 fi.bgra = std::move(item.bgra);
+                                auto now2 = std::chrono::steady_clock::now();
 
                                 // PTS-based wall-clock timing
                                 int64_t pts = frame->best_effort_timestamp;
@@ -1887,27 +1960,42 @@ private:
                                 if (pts != AV_NOPTS_VALUE && vs->time_base.den > 0) {
                                     if (!qHaveClock_) {
                                         qBasePts_ = pts;
-                                        qBaseWall_ = std::chrono::steady_clock::now();
+                                        qBaseWall_ = now2;
                                         qHaveClock_ = true;
                                         fi.due = qBaseWall_;
                                     } else {
                                         double dt = (double)(pts - qBasePts_) * av_q2d(vs->time_base);
                                         auto offset = std::chrono::microseconds((int64_t)(dt * 1000000.0));
                                         fi.due = qBaseWall_ + offset;
-                                        auto now = std::chrono::steady_clock::now();
-                                        // If clock drifts too far (>500ms), re-anchor
-                                        auto diff = fi.due - now;
-                                        if (diff > std::chrono::milliseconds(500) || diff < std::chrono::milliseconds(-500)) {
+                                        // If clock drifts too far, re-anchor more aggressively for live playback.
+                                        auto diff = fi.due - now2;
+                                        if (diff > std::chrono::milliseconds(150) || diff < std::chrono::milliseconds(-150)) {
                                             qBasePts_ = pts;
-                                            qBaseWall_ = now;
-                                            fi.due = now;
+                                            qBaseWall_ = now2;
+                                            fi.due = now2;
                                         }
                                     }
                                 } else {
-                                    fi.due = std::chrono::steady_clock::now();
+                                    fi.due = now2;
+                                }
+
+                                if (!frameQ_.empty() && fi.due < now2 - std::chrono::milliseconds(120) &&
+                                    frameQ_.size() >= (MAX_FRAME_QUEUE / 2)) {
+                                    qHaveClock_ = true;
+                                    if (pts != AV_NOPTS_VALUE) qBasePts_ = pts;
+                                    qBaseWall_ = now2;
+                                    fi.due = now2;
+                                    while (!frameQ_.empty()) {
+                                        if (framePool_.size() < MAX_FRAME_POOL)
+                                            framePool_.push_back(std::move(frameQ_.front().bgra));
+                                        frameQ_.pop_front();
+                                        stats_.frames_dropped++;
+                                    }
                                 }
 
                                 while (frameQ_.size() >= MAX_FRAME_QUEUE) {
+                                    if (framePool_.size() < MAX_FRAME_POOL)
+                                        framePool_.push_back(std::move(frameQ_.front().bgra));
                                     frameQ_.pop_front();
                                     stats_.frames_dropped++;
                                 }
@@ -1981,10 +2069,6 @@ private:
                             if (sr <= 0) sr = acc->sample_rate;
                             if (ch <= 0 || sr <= 0) continue;
 
-                            if (!audioOut.isOpen()) {
-                                audioOut.open(sr, ch);
-                            }
-
                             if (!swr) {
                                 AVChannelLayout outLayout = aFrame->ch_layout;
                                 if (outLayout.nb_channels <= 0) outLayout = acc->ch_layout;
@@ -2002,7 +2086,7 @@ private:
                                 }
                             }
 
-                            if (audioOut.isOpen() && swr) {
+                            if (swr) {
                                 int outSamplesMax = swr_get_out_samples(swr, aFrame->nb_samples);
                                 if (outSamplesMax <= 0) continue;
                                 std::vector<int16_t> pcm;
@@ -2012,7 +2096,27 @@ private:
                                 int outSamples = swr_convert(swr, outData, outSamplesMax, inData, aFrame->nb_samples);
                                 if (outSamples > 0) {
                                     size_t outBytes = (size_t)outSamples * (size_t)ch * sizeof(int16_t);
-                                    audioOut.submit((const uint8_t*)pcm.data(), outBytes);
+                                    AudioChunk chunk;
+                                    chunk.sampleRate = sr;
+                                    chunk.channels = ch;
+                                    chunk.pcm.resize(outBytes);
+                                    memcpy(chunk.pcm.data(), pcm.data(), outBytes);
+                                    {
+                                        std::lock_guard<std::mutex> lk(audioMu);
+                                        while (!audioQ.empty() && audioQueuedBytes + chunk.pcm.size() > MAX_AUDIO_QUEUE_BYTES) {
+                                            audioQueuedBytes -= audioQ.front().pcm.size();
+                                            audioQ.pop_front();
+                                        }
+                                        if (audioQueuedBytes > TARGET_AUDIO_QUEUE_BYTES && !audioQ.empty()) {
+                                            while (!audioQ.empty() && audioQueuedBytes > TARGET_AUDIO_QUEUE_BYTES) {
+                                                audioQueuedBytes -= audioQ.front().pcm.size();
+                                                audioQ.pop_front();
+                                            }
+                                        }
+                                        audioQueuedBytes += chunk.pcm.size();
+                                        audioQ.push_back(std::move(chunk));
+                                    }
+                                    audioCv.notify_one();
                                 }
                             }
                         }
@@ -2020,6 +2124,8 @@ private:
                 }
                 av_packet_unref(pkt);
             }
+
+            stopAudio_();
 
             // ── Cleanup ──
             av_packet_free(&pkt);
@@ -2029,7 +2135,6 @@ private:
             if (sws) sws_freeContext(sws);
             if (swr) swr_free(&swr);
             if (acc) avcodec_free_context(&acc);
-            audioOut.close();
             avcodec_free_context(&cc);
             avformat_close_input(&fmt);
             if (avioCtx) { av_freep(&avioCtx->buffer); avio_context_free(&avioCtx); }
@@ -2040,11 +2145,13 @@ private:
 
             tlsSelf_ = nullptr;
         } catch (const std::exception& e) {
+            try { stopAudio_(); } catch (...) {}
             stats_.setError(std::string("SAT2IP worker exception: ") + e.what());
             try { if (onLog) onLog("[SAT2IP] " + stats_.getError()); } catch (...) {}
             try { rtpBuf.stop(); } catch (...) {}
             if (sess.sock != INVALID_SOCKET) { try { sat2ipTeardown_(sess); } catch (...) {} }
         } catch (...) {
+            try { stopAudio_(); } catch (...) {}
             stats_.setError("SAT2IP worker exception (unknown)");
             try { if (onLog) onLog("[SAT2IP] " + stats_.getError()); } catch (...) {}
             try { rtpBuf.stop(); } catch (...) {}

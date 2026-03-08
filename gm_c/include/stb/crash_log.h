@@ -11,7 +11,7 @@ inline void CrashLog(const char* msg) {
     try {
         std::lock_guard<std::mutex> g(mu);
         FILE* f = nullptr;
-        fopen_s(&f, "gmscreen_crash.log", "a");
+        fopen_s(&f, "my4030_crash.log", "a");
         if (f) {
             time_t t = time(nullptr);
             struct tm tm_{}; localtime_s(&tm_, &t);

@@ -62,11 +62,11 @@ if(WIN32)
 endif()
 
 # Console CLI executable
-add_executable(gmscreen_cli
+add_executable(my4030_cli
     src/console/main.cpp
 )
 
-target_link_libraries(gmscreen_cli PRIVATE stb_core)
+target_link_libraries(my4030_cli PRIVATE stb_core)
 
 # Windows GUI executable
 if(WIN32)
@@ -76,7 +76,7 @@ if(WIN32)
     # Static link C++ runtime and dependencies for GUI
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-libgcc -static-libstdc++ -static")
     
-    add_executable(gmscreen_win32 WIN32
+    add_executable(my4030_win32 WIN32
         src/gui/main.cpp
         src/gui/main_window.cpp
         src/gui/channel_list_view.cpp
@@ -85,9 +85,9 @@ if(WIN32)
     )
     
     # GUI uses wWinMain (Unicode)
-    target_link_options(gmscreen_win32 PRIVATE -static -municode)
+    target_link_options(my4030_win32 PRIVATE -static -municode)
     
-    target_link_libraries(gmscreen_win32 PRIVATE
+    target_link_libraries(my4030_win32 PRIVATE
         stb_core
         comctl32
         gdi32
@@ -98,20 +98,20 @@ if(WIN32)
     if(TARGET imgui)
         # Create resource file
         add_custom_command(
-            OUTPUT ${CMAKE_BINARY_DIR}/gmscreen.res
-            COMMAND windres -I${CMAKE_SOURCE_DIR} -i ${CMAKE_SOURCE_DIR}/gmscreen.rc -o ${CMAKE_BINARY_DIR}/gmscreen.res
+            OUTPUT ${CMAKE_BINARY_DIR}/my4030.res
+            COMMAND windres -I${CMAKE_SOURCE_DIR} -i ${CMAKE_SOURCE_DIR}/gmscreen.rc -o ${CMAKE_BINARY_DIR}/my4030.res
             DEPENDS ${CMAKE_SOURCE_DIR}/gmscreen.rc ${CMAKE_SOURCE_DIR}/resource.h
         )
         
-        add_executable(gmscreen_imgui_win32 WIN32
+        add_executable(my4030_imgui_win32 WIN32
             src/gui/main_imgui.cpp
             src/gui/imgui_app.cpp
-            ${CMAKE_BINARY_DIR}/gmscreen.res
+            ${CMAKE_BINARY_DIR}/my4030.res
         )
 
-        target_link_options(gmscreen_imgui_win32 PRIVATE -static -municode)
+        target_link_options(my4030_imgui_win32 PRIVATE -static -municode)
 
-        target_link_libraries(gmscreen_imgui_win32 PRIVATE
+        target_link_libraries(my4030_imgui_win32 PRIVATE
             stb_core
             imgui
             d3d11
@@ -133,7 +133,7 @@ if(WIN32)
 endif()
 
 # Install targets
-install(TARGETS stb_core gmscreen_cli
+install(TARGETS stb_core my4030_cli
     ARCHIVE DESTINATION lib
     RUNTIME DESTINATION bin
 )

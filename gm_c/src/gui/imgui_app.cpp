@@ -493,6 +493,8 @@ struct App {
     cccam::AiTrainer    aiTrainer;
     cccam::ChannelScanner scanner;
     stb::RtspViewer rtspViewer;
+    std::mutex liveTuneMu;
+    std::atomic<uint64_t> liveTuneSeq{0};
     char rtspUrl[1024] = "rtsp://192.168.1.2:554/";
     Logger log;
     Logger cccamLog;
@@ -554,6 +556,9 @@ struct App {
     int  pipSize = 1;     // 0=small(320x180), 1=medium(480x270), 2=large(640x360)
     HWND mainHwnd = nullptr; // stored for SetWindowPos calls
     RECT pipSavedRect = {};  // original window rect before PiP
+    LONG_PTR pipSavedStyle = 0;
+    LONG_PTR pipSavedExStyle = 0;
+    bool pipWindowStyleSaved = false;
     
     // Cross-reference channels with satellite list to fill satellite_name
     void crossRefSatellites() {
@@ -730,7 +735,11 @@ struct App {
     ~App() {
         CrashLog("App destructor start");
         down = true;
-        try { rtspViewer.stop(); } catch (...) {}
+        try {
+            ++liveTuneSeq;
+            std::lock_guard<std::mutex> tuneGuard(liveTuneMu);
+            rtspViewer.stop();
+        } catch (...) {}
         try { scanner.stop(); } catch (...) {}
         try { harvester.stop(); } catch (...) {}
         try { aiTrainer.stop(); } catch (...) {}
@@ -942,7 +951,7 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
     // shared_ptr so detached threads keep App alive
     std::shared_ptr<App> app(rawApp);
     app->mainHwnd = hwnd;
-    app->log.add("GMScreen started - MediaStar 4030 4K");
+    app->log.add("my4030 started - MediaStar 4030 4K");
     app->loadCachedChannels();  // Load persistent cache from disk
     app->customLists.load();    // Load custom channel lists
     
@@ -1190,6 +1199,153 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
         bool busyCh   = app->chLoading.load();
         auto ss       = app->snapStrings();
 
+        auto applyPipChrome = [&]() {
+            if (!app->mainHwnd) return;
+            LONG_PTR style = GetWindowLongPtr(app->mainHwnd, GWL_STYLE);
+            LONG_PTR exStyle = GetWindowLongPtr(app->mainHwnd, GWL_EXSTYLE);
+            if (!app->pipWindowStyleSaved) {
+                app->pipSavedStyle = style;
+                app->pipSavedExStyle = exStyle;
+                app->pipWindowStyleSaved = true;
+            }
+            style &= ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU);
+            style |= WS_POPUP | WS_VISIBLE;
+            exStyle &= ~(WS_EX_DLGMODALFRAME | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE | WS_EX_WINDOWEDGE | WS_EX_APPWINDOW);
+            exStyle |= WS_EX_TOOLWINDOW;
+            SetWindowLongPtr(app->mainHwnd, GWL_STYLE, style);
+            SetWindowLongPtr(app->mainHwnd, GWL_EXSTYLE, exStyle);
+        };
+        auto restorePipChrome = [&]() {
+            if (!app->mainHwnd || !app->pipWindowStyleSaved) return;
+            SetWindowLongPtr(app->mainHwnd, GWL_STYLE, app->pipSavedStyle);
+            SetWindowLongPtr(app->mainHwnd, GWL_EXSTYLE, app->pipSavedExStyle);
+        };
+        auto applyPipRect = [&]() {
+            if (!app->mainHwnd) return;
+            const int szW[] = {400, 600, 840};
+            const int szH[] = {260, 380, 520};
+            int si = app->pipSize;
+            if (si < 0 || si > 2) si = 1;
+            int sx = GetSystemMetrics(SM_CXSCREEN);
+            int sy = GetSystemMetrics(SM_CYSCREEN);
+            SetWindowPos(app->mainHwnd, HWND_TOPMOST,
+                sx - szW[si] - 10, sy - szH[si] - 50, szW[si], szH[si],
+                SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+        };
+        auto exitPip = [&]() {
+            app->pipMode = false;
+            restorePipChrome();
+            RECT& r = app->pipSavedRect;
+            if (!app->mainHwnd) return;
+            if (r.right > r.left && r.bottom > r.top) {
+                SetWindowPos(app->mainHwnd, HWND_NOTOPMOST,
+                    r.left, r.top, r.right - r.left, r.bottom - r.top,
+                    SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+            } else {
+                SetWindowPos(app->mainHwnd, HWND_NOTOPMOST, 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+            }
+        };
+        auto enterPip = [&]() {
+            if (!app->mainHwnd) return;
+            if (!app->pipMode) GetWindowRect(app->mainHwnd, &app->pipSavedRect);
+            app->pipMode = true;
+            applyPipChrome();
+            applyPipRect();
+        };
+        auto findChannelIndexForEntry = [&](const stb::CustomListEntry& entry) -> int {
+            std::lock_guard<std::mutex> g(app->chMu);
+            if (!entry.service_id.empty()) {
+                for (int i = 0; i < (int)app->channels.size(); i++) {
+                    const auto& ch = app->channels[i];
+                    if (ch.service_id == entry.service_id) return i;
+                    if (!ch.program_id.empty() && ch.program_id == entry.service_id) return i;
+                }
+            }
+            if (entry.service_index >= 0) {
+                for (int i = 0; i < (int)app->channels.size(); i++) {
+                    const auto& ch = app->channels[i];
+                    if (ch.service_index == entry.service_index && ch.is_radio == entry.is_radio) return i;
+                }
+            }
+            return -1;
+        };
+        auto startLiveChannelByIndex = [&](int channelIdx) -> bool {
+            if (channelIdx < 0) return false;
+            app->mainTab = 0;
+            app->liveSelectedCh = channelIdx;
+            app->liveTuning = true;
+            std::string sid, chName, url;
+            bool chRadio = false;
+            int chSvcIdx = 0;
+            {
+                std::lock_guard<std::mutex> g(app->chMu);
+                if (channelIdx >= (int)app->channels.size()) {
+                    app->liveTuning = false;
+                    return false;
+                }
+                const auto& ch = app->channels[channelIdx];
+                sid = !ch.service_id.empty() ? ch.service_id : ch.program_id;
+                chName = ch.service_name;
+                chRadio = ch.is_radio;
+                chSvcIdx = ch.service_index;
+                auto cfg = stb::RtspViewer::extractChannelParams(ch);
+                {
+                    std::lock_guard<std::mutex> gt(app->tpMu);
+                    for (const auto& tp : app->transponders) {
+                        if (tp.sat_index == cfg.sat_index && tp.tp_index == cfg.tp_index) {
+                            cfg.freq = tp.freq;
+                            cfg.sym_rate = tp.sym_rate;
+                            cfg.fec = tp.fec;
+                            cfg.pol = tp.pol;
+                            break;
+                        }
+                    }
+                }
+                url = stb::RtspViewer::generateMediaStarUrl(app->ip, cfg);
+            }
+            if (sid.empty()) sid = std::to_string(chSvcIdx);
+            if (url.empty()) {
+                app->liveTuning = false;
+                return false;
+            }
+            app->addRecentChannel(sid, chName, chSvcIdx, chRadio);
+            snprintf(app->rtspUrl, sizeof(app->rtspUrl), "%s", url.c_str());
+            app->rtspProgramId = sid;
+            app->log.add("[LiveTV] " + chName);
+            std::weak_ptr<App> wapp = app;
+            std::string urlCopy = url;
+            uint64_t tuneSeq = ++app->liveTuneSeq;
+            std::thread([wapp, urlCopy, tuneSeq]{
+                try {
+                    auto sp = wapp.lock(); if (!sp || sp->down) return;
+                    std::lock_guard<std::mutex> tuneGuard(sp->liveTuneMu);
+                    if (sp->down || tuneSeq != sp->liveTuneSeq.load()) {
+                        sp->liveTuning = false;
+                        return;
+                    }
+                    sp->rtspViewer.stop();
+                    try { if (sp->client.isConnected()) sp->client.sat2ipStop(); } catch (...) {}
+                    std::this_thread::sleep_for(std::chrono::milliseconds(120));
+                    if (sp->down || tuneSeq != sp->liveTuneSeq.load()) {
+                        sp->liveTuning = false;
+                        return;
+                    }
+                    sp->rtspViewer.onLog = [wapp](const std::string& msg) {
+                        try { auto s2 = wapp.lock(); if (s2 && !s2->down) s2->log.add(msg); } catch (...) {}
+                    };
+                    stb::RtspViewerConfig rcfg;
+                    rcfg.url = urlCopy;
+                    rcfg.min_buffer_ms = 500;
+                    sp->rtspViewer.start(rcfg);
+                    if (tuneSeq == sp->liveTuneSeq.load()) sp->liveTuning = false;
+                } catch (...) {
+                    try { auto sp = wapp.lock(); if (sp) sp->liveTuning = false; } catch (...) {}
+                }
+            }).detach();
+            return true;
+        };
+
         // ════════════════════════════════════════════════════════════════
         // PiP MODE: borderless video-only, overlay on hover
         // ════════════════════════════════════════════════════════════════
@@ -1272,12 +1428,7 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4{1.0f, 0.30f, 0.30f, ba});
                     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{1, 1, 1, ba});
                     if (ImGui::SmallButton("Close")) {
-                        app->pipMode = false;
-                        RECT& r = app->pipSavedRect;
-                        if (r.right > r.left && r.bottom > r.top)
-                            SetWindowPos(app->mainHwnd, HWND_NOTOPMOST, r.left, r.top, r.right - r.left, r.bottom - r.top, 0);
-                        else
-                            SetWindowPos(app->mainHwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+                        exitPip();
                     }
                     ImGui::PopStyleColor(3);
 
@@ -1295,9 +1446,7 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                         char sl[8]; snprintf(sl, sizeof(sl), "%s##pp%d", szN[si], si);
                         if (ImGui::SmallButton(sl)) {
                             app->pipSize = si;
-                            int sx = GetSystemMetrics(SM_CXSCREEN);
-                            int sy = GetSystemMetrics(SM_CYSCREEN);
-                            SetWindowPos(app->mainHwnd, HWND_TOPMOST, sx - szW[si] - 10, sy - szH[si] - 50, szW[si], szH[si], 0);
+                            applyPipRect();
                         }
                         ImGui::PopStyleColor(3);
                     }
@@ -1310,8 +1459,11 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{1, 1, 1, ba});
                         if (ImGui::SmallButton("Stop")) {
                             app->liveTuning = false; app->liveSelectedCh = -1;
+                            uint64_t stopSeq = ++app->liveTuneSeq;
                             std::weak_ptr<App> ws = app;
-                            std::thread([ws]{ try { auto s = ws.lock(); if (!s) return;
+                            std::thread([ws, stopSeq]{ try { auto s = ws.lock(); if (!s) return;
+                                std::lock_guard<std::mutex> tuneGuard(s->liveTuneMu);
+                                if (s->down || stopSeq != s->liveTuneSeq.load()) return;
                                 s->rtspViewer.stop();
                                 try { if (s->client.isConnected()) s->client.sat2ipStop(); } catch (...) {}
                             } catch (...) {} }).detach();
@@ -1602,10 +1754,13 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                     if (ImGui::Button("Stop##live", {-1, tbH})) {
                         app->liveTuning = false;
                         app->liveSelectedCh = -1;
+                        uint64_t stopSeq = ++app->liveTuneSeq;
                         std::weak_ptr<App> wstop = app;
-                        std::thread([wstop]{
+                        std::thread([wstop, stopSeq]{
                             try {
                                 auto sp = wstop.lock(); if (!sp) return;
+                                std::lock_guard<std::mutex> tuneGuard(sp->liveTuneMu);
+                                if (sp->down || stopSeq != sp->liveTuneSeq.load()) return;
                                 sp->rtspViewer.stop();
                                 try { if (sp->client.isConnected()) sp->client.sat2ipStop(); } catch (...) {}
                             } catch (...) {}
@@ -1684,53 +1839,7 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                 ImGui::EndChild();
 
                 if (clickedChIdx >= 0) {
-                    app->liveSelectedCh = clickedChIdx;
-                    app->liveTuning = true;
-                    std::string sid, chName, url;
-                    bool chRadio = false; int chSvcIdx = 0;
-                    {
-                        std::lock_guard<std::mutex> g(app->chMu);
-                        if (clickedChIdx < (int)app->channels.size()) {
-                            const auto& ch = app->channels[clickedChIdx];
-                            sid = ch.service_id; chName = ch.service_name;
-                            chRadio = ch.is_radio; chSvcIdx = ch.service_index;
-                            auto cfg = stb::RtspViewer::extractChannelParams(ch);
-                            { std::lock_guard<std::mutex> gt(app->tpMu);
-                              for (const auto& tp : app->transponders) {
-                                if (tp.sat_index == cfg.sat_index && tp.tp_index == cfg.tp_index) {
-                                    cfg.freq = tp.freq; cfg.sym_rate = tp.sym_rate; cfg.fec = tp.fec; cfg.pol = tp.pol; break;
-                                }
-                              }
-                            }
-                            url = stb::RtspViewer::generateMediaStarUrl(app->ip, cfg);
-                        }
-                    }
-                    if (!url.empty()) {
-                        app->addRecentChannel(sid, chName, chSvcIdx, chRadio);
-                        snprintf(app->rtspUrl, sizeof(app->rtspUrl), "%s", url.c_str());
-                        app->rtspProgramId = sid;
-                        app->log.add("[LiveTV] " + chName);
-                        std::weak_ptr<App> wapp = app;
-                        std::string urlCopy = url, sidCopy = sid;
-                        std::thread([wapp, urlCopy, sidCopy]{
-                            try {
-                                auto sp = wapp.lock(); if (!sp || sp->down) return;
-                                sp->rtspViewer.stop();
-                                try { if (sp->client.isConnected()) sp->client.sat2ipStop(); } catch (...) {}
-                                std::this_thread::sleep_for(std::chrono::milliseconds(200));
-                                if (sp->down) return;
-                                sp->rtspViewer.onLog = [wapp](const std::string& msg) {
-                                    try { auto s2 = wapp.lock(); if (s2 && !s2->down) s2->log.add(msg); } catch (...) {}
-                                };
-                                stb::RtspViewerConfig rcfg; rcfg.url = urlCopy; rcfg.tcp_transport = false;
-                                sp->rtspViewer.start(rcfg);
-                                try { if (sp->client.isConnected()) sp->client.sat2ipChannelPlay(sidCopy, 0); } catch (...) {}
-                                sp->liveTuning = false;
-                            } catch (...) {
-                                try { auto sp = wapp.lock(); if (sp) sp->liveTuning = false; } catch (...) {}
-                            }
-                        }).detach();
-                    } else { app->liveTuning = false; }
+                    if (!startLiveChannelByIndex(clickedChIdx)) app->liveTuning = false;
                 }
             }
             ImGui::EndChild();
@@ -1763,16 +1872,7 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                     float px = ImGui::GetContentRegionAvail().x;
                     if (px > 50*dpi) { ImGui::SameLine(px - 40*dpi); }
                     if (ImGui::SmallButton("PiP")) {
-                        // Save current window rect, then enter PiP
-                        GetWindowRect(app->mainHwnd, &app->pipSavedRect);
-                        app->pipMode = true;
-                        const int szW[] = {400, 600, 840};
-                        const int szH[] = {260, 380, 520};
-                        int si = app->pipSize;
-                        int sx = GetSystemMetrics(SM_CXSCREEN);
-                        int sy = GetSystemMetrics(SM_CYSCREEN);
-                        SetWindowPos(app->mainHwnd, HWND_TOPMOST,
-                            sx - szW[si] - 10, sy - szH[si] - 50, szW[si], szH[si], 0);
+                        enterPip();
                     }
                 }
                 ImGui::Separator();
@@ -2334,7 +2434,10 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                             // Play button
                             ImGui::PushStyleColor(ImGuiCol_Button, {0,0,0,0});
                             if (ImGui::SmallButton(">##clp")) {
-                                if (connected) {
+                                int idx = findChannelIndexForEntry(e);
+                                if (idx >= 0) {
+                                    startLiveChannelByIndex(idx);
+                                } else if (connected) {
                                     int tvst = e.is_radio ? 1 : 0;
                                     try {
                                         if (!e.service_id.empty())
@@ -3955,7 +4058,7 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                     if (ImGui::Button("Load Model", {100*dpi, 24*dpi}))
                         app->cccam.learner.load();
                     ImGui::SameLine(0,8);
-                    ImGui::TextDisabled("Training log: gmscreen_ecm_train.csv");
+                    ImGui::TextDisabled("Training log: my4030_ecm_train.csv");
 
                     ImGui::Spacing();
                     ImGui::TextColored({0.6f,0.85f,1.0f,1.0f}, "Upstream Success (Last Seen)");
@@ -4076,8 +4179,8 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                     ImGui::Spacing();
                     ImGui::TextDisabled("ECMs are forwarded to ALL enabled upstream servers.");
                     ImGui::TextDisabled("First successful CW is relayed to the STB.");
-                    ImGui::TextDisabled("Training data: gmscreen_ecm_log.csv");
-                    ImGui::TextDisabled("Learned model: gmscreen_cwlearn.dat");
+                    ImGui::TextDisabled("Training data: my4030_ecm_log.csv");
+                    ImGui::TextDisabled("Learned model: my4030_cwlearn.dat");
 
                     if (cfgDis) ImGui::EndDisabled();
                 }
