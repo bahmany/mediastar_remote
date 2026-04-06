@@ -246,7 +246,19 @@ public:
     void stop() {
         started_ = false;
         if (sock_ != INVALID_SOCKET) { closesocket(sock_); sock_ = INVALID_SOCKET; }
-        if (rxThread_.joinable()) rxThread_.join();
+        // Join with timeout to prevent hang
+        if (rxThread_.joinable()) {
+            auto start = std::chrono::steady_clock::now();
+            while (rxThread_.joinable()) {
+                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - start).count();
+                if (elapsed > 1000) {  // 1 second timeout
+                    rxThread_.detach();
+                    break;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+        }
         // Wake any blocked reader
         {
             std::lock_guard<std::mutex> g(mu_);
@@ -671,13 +683,22 @@ public:
         size_t off = 0;
         while (off < bytes) {
             int idx = -1;
-            // Wait up to 20ms for a free buffer — short enough to not stall video decode
-            for (int attempt = 0; attempt < 20; attempt++) {
+            // Wait up to 100ms for a free buffer — longer for HD audio stability
+            for (int attempt = 0; attempt < 100; attempt++) {
                 idx = findFree_();
                 if (idx >= 0) break;
                 Sleep(1);
             }
-            if (idx < 0) return; // rare: give up to avoid stalling video
+            if (idx < 0) {
+                // Drop oldest buffer instead of giving up - prevents audio starvation
+                for (int i = 0; i < NUM_BUFS; i++) {
+                    if ((hdrs_[i].dwFlags & WHDR_INQUEUE) == 0) {
+                        idx = i;
+                        break;
+                    }
+                }
+                if (idx < 0) return; // All buffers truly busy
+            }
 
             WAVEHDR& hdr = hdrs_[idx];
             size_t n = bytes - off;
@@ -698,8 +719,8 @@ private:
         return -1;
     }
 
-    static constexpr int NUM_BUFS = 6;
-    static constexpr size_t BUF_BYTES = 8192;
+    static constexpr int NUM_BUFS = 16;
+    static constexpr size_t BUF_BYTES = 65536;
 
     HWAVEOUT hwo_ = nullptr;
     bool opened_ = false;
@@ -810,13 +831,31 @@ public:
     
     void stop() {
         try {
+            // Signal stop first
             stopFlag_ = true;
             running_ = false;
+            
+            // Wait for worker thread with timeout to prevent hangs
             if (workerThread_.joinable()) {
-                // Avoid self-join just in case stop() ever gets called from worker.
-                if (std::this_thread::get_id() != workerThread_.get_id()) workerThread_.join();
-                else workerThread_.detach();
+                if (std::this_thread::get_id() != workerThread_.get_id()) {
+                    auto joinStart = std::chrono::steady_clock::now();
+                    while (workerThread_.joinable()) {
+                        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - joinStart).count();
+                        if (elapsed > 2000) {  // 2 second timeout
+                            workerThread_.detach();
+                            break;
+                        }
+                        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                    }
+                } else {
+                    workerThread_.detach();
+                }
             }
+            
+            // Short delay to ensure socket/UDP cleanup before new session
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            
             stats_.connected = false;
             stats_.has_video = false;
 
@@ -837,6 +876,12 @@ public:
                 frameQ_.clear();
                 qHaveClock_ = false;
             }
+            // Reset audio sync state
+            aHaveClock_ = false;
+            aBasePts_ = 0;
+            aBaseWall_ = {};
+            aVOffsetUs_.store(0);
+            aVOffsetSamples_ = 0;
         } catch (...) {
             try { stats_.connected = false; stats_.has_video = false; } catch (...) {}
         }
@@ -1356,9 +1401,12 @@ private:
         return resp.substr(pos, end - pos);
     }
 
-    // Fixed RTP port — always use 10022 (same as Android app)
+    // Dynamic RTP port allocation to avoid bind conflicts on rapid channel switching
     static int findFreeUdpPort_() {
-        return 10022;
+        static int nextPort = 10022;
+        int port = nextPort;
+        nextPort = (nextPort >= 10050) ? 10022 : nextPort + 1;
+        return port;
     }
 
     void log_(const std::string& msg) {
@@ -1552,14 +1600,15 @@ private:
             int sampleRate = 0;
             int channels = 0;
             std::vector<uint8_t> pcm;
+            std::chrono::steady_clock::time_point timestamp;
         };
         WaveOutPlayer audioOut;
         std::mutex audioMu;
         std::condition_variable audioCv;
         std::deque<AudioChunk> audioQ;
         size_t audioQueuedBytes = 0;
-        static constexpr size_t MAX_AUDIO_QUEUE_BYTES = 128 * 1024;
-        static constexpr size_t TARGET_AUDIO_QUEUE_BYTES = 64 * 1024;
+        static constexpr size_t MAX_AUDIO_QUEUE_BYTES = 1024 * 1024;
+        static constexpr size_t TARGET_AUDIO_QUEUE_BYTES = 512 * 1024;
         std::atomic<bool> audioStop{false};
         std::thread audioThread;
         auto stopAudio_ = [&]() {
@@ -1636,11 +1685,12 @@ private:
 
             if (config_.min_buffer_ms > 0) {
                 int prebufMs = config_.min_buffer_ms;
-                if (prebufMs > 500) prebufMs = 500;
-                rtpBuf.setWatermarksMs(prebufMs + 500, prebufMs);
-                log_("[SAT2IP] Prebuffer " + std::to_string(prebufMs) + " ms...");
+                if (prebufMs < 300) prebufMs = 300;  // Minimum 300ms for HD stability
+                if (prebufMs > 800) prebufMs = 800;  // Maximum 800ms to avoid too much delay
+                rtpBuf.setWatermarksMs(prebufMs + 600, prebufMs + 200);
+                log_("[SAT2IP] Prebuffer " + std::to_string(prebufMs) + " ms for HD video stability...");
                 auto pre = std::chrono::milliseconds(prebufMs);
-                auto to = pre + std::chrono::milliseconds(8000);
+                auto to = pre + std::chrono::milliseconds(10000);
                 if (!rtpBuf.waitForPrebuffer(pre, to, [this](const std::string& s){ log_(s); })) {
                     // Don't abort — continue anyway and let avioRead block until data arrives
                     log_("[SAT2IP] Prebuffer incomplete, continuing anyway...");
@@ -1669,8 +1719,9 @@ private:
             // Open as mpegts (we already stripped RTP headers in the receive thread)
             const AVInputFormat* tsFmt = av_find_input_format("mpegts");
             AVDictionary* opts = nullptr;
-            av_dict_set_int(&opts, "analyzeduration", 500000, 0); // 0.5s — just find PAT/PMT
-            av_dict_set_int(&opts, "probesize", 188 * 200, 0); // ~37KB — minimal for TS sync
+            av_dict_set_int(&opts, "analyzeduration", 1000000, 0); // 1s - reasonable analysis
+            av_dict_set_int(&opts, "probesize", 188 * 500, 0); // ~94KB - moderate probe
+            av_dict_set(&opts, "max_delay", "0", 0); // Reduce initial delay
             err = avformat_open_input(&fmt, nullptr, tsFmt, &opts);
             av_dict_free(&opts);
 
@@ -1685,11 +1736,8 @@ private:
             }
             log_("[SAT2IP] AVIO+mpegts opened OK");
 
-            // ── Discover streams by reading packets (no find_stream_info) ──
-            // find_stream_info is too slow because it tries to decode MPEG-2 frames.
-            // The MPEG-TS demuxer discovers streams from PAT/PMT tables just by reading packets.
-            // We don't need codec dimensions upfront — MPEG-2 decoder discovers them from
-            // the sequence header in the first keyframe.
+            // ── Discover all streams using FFmpeg's stream info discovery ──
+            // This is necessary to properly detect audio streams in HD content
             av_log_set_level(AV_LOG_QUIET); // completely silent during discovery
 
             int vIndex = -1;
@@ -1703,27 +1751,43 @@ private:
             AVFrame* aFrame = nullptr;
 
             {
-                log_("[SAT2IP] Discovering streams from MPEG-TS...");
-                AVPacket* probe = av_packet_alloc();
-                auto t0 = std::chrono::steady_clock::now();
-                while (!stopFlag_.load()) {
-                    auto dt = std::chrono::duration_cast<std::chrono::seconds>(
-                        std::chrono::steady_clock::now() - t0).count();
-                    if (dt > 10) break;
-                    err = av_read_frame(fmt, probe);
-                    if (err < 0) {
-                        if (err == AVERROR(EAGAIN)) { std::this_thread::sleep_for(std::chrono::milliseconds(5)); continue; }
-                        break;
-                    }
-                    av_packet_unref(probe);
-                    vIndex = av_find_best_stream(fmt, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
-                    aIndex = av_find_best_stream(fmt, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
-                    if (vIndex >= 0) {
-                        log_("[SAT2IP] Video stream found after " + std::to_string(dt) + "s (index=" + std::to_string(vIndex) + ")");
-                        break;
+                log_("[SAT2IP] Analyzing streams with avformat_find_stream_info...");
+                AVDictionary* streamOpts = nullptr;
+                av_dict_set_int(&streamOpts, "analyzeduration", 1000000, 0); // 1s analysis
+                av_dict_set_int(&streamOpts, "probesize", 188 * 500, 0); // ~94KB probe
+                int analyzeErr = avformat_find_stream_info(fmt, &streamOpts);
+                av_dict_free(&streamOpts);
+                
+                if (analyzeErr < 0) {
+                    log_("[SAT2IP] Stream analysis failed: " + ffErr_(analyzeErr) + ", will try manual discovery");
+                } else {
+                    log_("[SAT2IP] Stream analysis successful, found " + std::to_string(fmt->nb_streams) + " streams");
+                    for (unsigned int i = 0; i < fmt->nb_streams; i++) {
+                        AVStream* s = fmt->streams[i];
+                        const char* type = "unknown";
+                        if (s->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) type = "VIDEO";
+                        else if (s->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) type = "AUDIO";
+                        else if (s->codecpar->codec_type == AVMEDIA_TYPE_SUBTITLE) type = "SUBTITLE";
+                        log_("[SAT2IP] Stream " + std::to_string(i) + ": " + type + 
+                            " codec_id=" + std::to_string((int)s->codecpar->codec_id));
                     }
                 }
-                av_packet_free(&probe);
+                
+                // Find best video and audio streams
+                vIndex = av_find_best_stream(fmt, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
+                aIndex = av_find_best_stream(fmt, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
+                
+                if (vIndex >= 0) {
+                    log_("[SAT2IP] Video stream found at index " + std::to_string(vIndex));
+                } else {
+                    log_("[SAT2IP] No video stream found");
+                }
+                
+                if (aIndex >= 0) {
+                    log_("[SAT2IP] Audio stream found at index " + std::to_string(aIndex));
+                } else {
+                    log_("[SAT2IP] No audio stream found - will retry during decode");
+                }
             }
             av_log_set_level(AV_LOG_QUIET);
 
@@ -1779,48 +1843,155 @@ private:
 
             auto tryInitAudio = [&]() {
                 if (acc) return;
+                
+                // Try to find audio stream multiple times with different strategies
                 aIndex = av_find_best_stream(fmt, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
-                if (aIndex < 0 || aIndex >= (int)fmt->nb_streams) return;
-                AVStream* as = fmt->streams[aIndex];
-                adec = avcodec_find_decoder(as->codecpar->codec_id);
-                if (!adec) return;
-
-                acc = avcodec_alloc_context3(adec);
-                if (!acc) return;
-                avcodec_parameters_to_context(acc, as->codecpar);
-                acc->thread_count = 0;
-                int aerr = avcodec_open2(acc, adec, nullptr);
-                if (aerr < 0) {
-                    avcodec_free_context(&acc);
+                if (aIndex < 0 || aIndex >= (int)fmt->nb_streams) {
+                    // Try manual search through all streams
+                    log_("[SAT2IP] No audio stream found with av_find_best_stream, searching manually...");
+                    for (unsigned int i = 0; i < fmt->nb_streams; i++) {
+                        if (fmt->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
+                            aIndex = i;
+                            log_("[SAT2IP] Found audio stream at index " + std::to_string(i));
+                            break;
+                        }
+                    }
+                }
+                
+                if (aIndex < 0 || aIndex >= (int)fmt->nb_streams) {
+                    log_("[SAT2IP] No audio stream found in any stream");
                     return;
                 }
+                
+                AVStream* as = fmt->streams[aIndex];
+                log_("[SAT2IP] Audio stream details: codec_id=" + std::to_string((int)as->codecpar->codec_id) +
+                    " sample_rate=" + std::to_string(as->codecpar->sample_rate) +
+                    " channels=" + std::to_string(as->codecpar->ch_layout.nb_channels) +
+                    " format=" + std::to_string((int)as->codecpar->format) +
+                    " bitrate=" + std::to_string(as->codecpar->bit_rate));
+                
+                // Try multiple decoder attempts
+                adec = avcodec_find_decoder(as->codecpar->codec_id);
+                if (!adec) {
+                    log_("[SAT2IP] No decoder found for audio codec " + std::to_string((int)as->codecpar->codec_id) + ", trying fallback...");
+                    // Try to find any audio decoder
+                    const AVCodec* fallback = nullptr;
+                    void* opaque = nullptr;
+                    while ((fallback = av_codec_iterate(&opaque))) {
+                        if (fallback->type == AVMEDIA_TYPE_AUDIO && fallback->id == as->codecpar->codec_id) {
+                            adec = fallback;
+                            log_("[SAT2IP] Found fallback decoder: " + std::string(fallback->name ? fallback->name : "unknown"));
+                            break;
+                        }
+                    }
+                }
+                
+                if (!adec) {
+                    log_("[SAT2IP] CRITICAL: No decoder available for audio codec " + std::to_string((int)as->codecpar->codec_id));
+                    return;
+                }
+
+                acc = avcodec_alloc_context3(adec);
+                if (!acc) {
+                    log_("[SAT2IP] Failed to allocate audio codec context");
+                    return;
+                }
+                avcodec_parameters_to_context(acc, as->codecpar);
+                acc->thread_count = 0;
+                // Enable low delay for better sync
+                acc->flags |= AV_CODEC_FLAG_LOW_DELAY;
+                // Enable error concealment for better audio recovery
+                acc->err_recognition = AV_EF_CAREFUL;
+                
+                int aerr = avcodec_open2(acc, adec, nullptr);
+                if (aerr < 0) {
+                    log_("[SAT2IP] Failed to open audio decoder: " + ffErr_(aerr) + ", retrying with different options...");
+                    // Retry without low delay flag
+                    acc->flags &= ~AV_CODEC_FLAG_LOW_DELAY;
+                    aerr = avcodec_open2(acc, adec, nullptr);
+                    if (aerr < 0) {
+                        log_("[SAT2IP] CRITICAL: Failed to open audio decoder after retry: " + ffErr_(aerr));
+                        avcodec_free_context(&acc);
+                        return;
+                    }
+                }
                 aFrame = av_frame_alloc();
-                log_("[SAT2IP] Audio decoder: " + std::string(adec->name ? adec->name : "") + " (index=" + std::to_string(aIndex) + ")");
+                log_("[SAT2IP] Audio decoder SUCCESSFULLY opened: " + std::string(adec->name ? adec->name : "") + 
+                    " (index=" + std::to_string(aIndex) + 
+                    " sr=" + std::to_string(acc->sample_rate) + 
+                    " ch=" + std::to_string(acc->ch_layout.nb_channels) + 
+                    " format=" + std::to_string((int)acc->sample_fmt) + ")");
             };
 
             // Try once here, and again later during decode loop if it wasn't discovered yet.
             tryInitAudio();
 
             audioThread = std::thread([&] {
+                auto lastAudioTime = std::chrono::steady_clock::now();
                 while (!audioStop.load()) {
                     AudioChunk chunk;
+                    bool hasChunk = false;
                     {
                         std::unique_lock<std::mutex> lk(audioMu);
-                        audioCv.wait_for(lk, std::chrono::milliseconds(20), [&] {
+                        audioCv.wait_for(lk, std::chrono::milliseconds(2), [&] {
                             return audioStop.load() || !audioQ.empty();
                         });
                         if (audioStop.load() && audioQ.empty()) break;
-                        if (audioQ.empty()) continue;
-                        chunk = std::move(audioQ.front());
-                        audioQueuedBytes -= chunk.pcm.size();
-                        audioQ.pop_front();
+                        if (!audioQ.empty()) {
+                            chunk = std::move(audioQ.front());
+                            audioQueuedBytes -= chunk.pcm.size();
+                            audioQ.pop_front();
+                            hasChunk = true;
+                        }
                     }
-                    if (!audioOut.isOpen() || audioOut.sampleRate() != chunk.sampleRate || audioOut.channels() != chunk.channels) {
-                        audioOut.close();
-                        audioOut.open(chunk.sampleRate, chunk.channels);
-                    }
-                    if (audioOut.isOpen() && !chunk.pcm.empty()) {
-                        audioOut.submit(chunk.pcm.data(), chunk.pcm.size());
+                    
+                    if (hasChunk) {
+                        // Reopen audio device if format changed
+                        if (!audioOut.isOpen() || audioOut.sampleRate() != chunk.sampleRate || audioOut.channels() != chunk.channels) {
+                            audioOut.close();
+                            if (audioOut.open(chunk.sampleRate, chunk.channels)) {
+                                log_("[SAT2IP] Audio device opened: " + std::to_string(chunk.sampleRate) + "Hz " + std::to_string(chunk.channels) + "ch");
+                            }
+                        }
+                        
+                        if (audioOut.isOpen() && !chunk.pcm.empty()) {
+                            // Intelligent audio-video sync
+                            auto now = std::chrono::steady_clock::now();
+                            int64_t offsetUs = aVOffsetUs_.load();
+                            
+                            // Calculate audio delay based on offset
+                            auto audioDelay = now - chunk.timestamp;
+                            int64_t audioDelayUs = std::chrono::duration_cast<std::chrono::microseconds>(audioDelay).count();
+                            
+                            // Total sync error = (timestamp delay) + (audio-video PTS offset)
+                            int64_t syncErrorUs = audioDelayUs + offsetUs;
+                            
+                            // Intelligent sync correction:
+                            // If audio is ahead (> 40ms), drop some samples or wait
+                            // If audio is behind (< -40ms), we can't speed up, so just play as-is
+                            if (syncErrorUs > 40000) {
+                                // Audio is too far ahead (> 40ms), wait to sync
+                                int waitMs = (int)(syncErrorUs / 1000) - 20;
+                                if (waitMs > 0 && waitMs < 100) {
+                                    std::this_thread::sleep_for(std::chrono::milliseconds(waitMs));
+                                }
+                            } else if (syncErrorUs < -40000) {
+                                // Audio is too far behind (> 40ms), we can't fix this by dropping
+                                // Just play normally - video will catch up or we accept the lag
+                            }
+                            
+                            // Log sync status periodically
+                            static int syncLogCount = 0;
+                            if (++syncLogCount % 500 == 0) {
+                                log_("[SAT2IP][SYNC] A-V offset=" + std::to_string(offsetUs / 1000) + "ms, delay=" + std::to_string(audioDelayUs / 1000) + "ms, error=" + std::to_string(syncErrorUs / 1000) + "ms");
+                            }
+                            
+                            audioOut.submit(chunk.pcm.data(), chunk.pcm.size());
+                            lastAudioTime = now;
+                        }
+                    } else {
+                        // No audio data, short sleep to prevent CPU spinning
+                        std::this_thread::sleep_for(std::chrono::milliseconds(1));
                     }
                 }
             });
@@ -1860,13 +2031,20 @@ private:
             uint64_t framesSince = 0, bytesSince = 0;
             bool gotFirstFrame = false;
             int goodKeyframes = 0;
+            int audioInitRetryCount = 0;
 
             log_("[SAT2IP] Entering decode loop...");
 
             while (!stopFlag_.load()) {
                 // Try to discover/init audio stream lazily (PMT may arrive later)
-                if (!acc) {
+                if (!acc && audioInitRetryCount < 50) {
                     try { tryInitAudio(); } catch (...) {}
+                    audioInitRetryCount++;
+                    if (acc) {
+                        log_("[SAT2IP] Audio initialized after " + std::to_string(audioInitRetryCount) + " attempts");
+                    } else if (audioInitRetryCount % 10 == 0) {
+                        log_("[SAT2IP] Still trying to initialize audio (attempt " + std::to_string(audioInitRetryCount) + ")");
+                    }
                 }
 
                 // Send OPTIONS keepalive every 8 seconds (Android uses 10)
@@ -1967,20 +2145,23 @@ private:
                                         double dt = (double)(pts - qBasePts_) * av_q2d(vs->time_base);
                                         auto offset = std::chrono::microseconds((int64_t)(dt * 1000000.0));
                                         fi.due = qBaseWall_ + offset;
-                                        // If clock drifts too far, re-anchor more aggressively for live playback.
+                                        
+                                        // Intelligent drift correction: only re-anchor if drift is large AND persistent
                                         auto diff = fi.due - now2;
-                                        if (diff > std::chrono::milliseconds(150) || diff < std::chrono::milliseconds(-150)) {
+                                        if (diff > std::chrono::milliseconds(200) || diff < std::chrono::milliseconds(-200)) {
+                                            // Large drift detected - re-anchor
                                             qBasePts_ = pts;
                                             qBaseWall_ = now2;
                                             fi.due = now2;
+                                            log_("[SAT2IP][SYNC] Video clock re-anchored (drift=" + std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(diff).count()) + "ms)");
                                         }
                                     }
                                 } else {
                                     fi.due = now2;
                                 }
 
-                                if (!frameQ_.empty() && fi.due < now2 - std::chrono::milliseconds(120) &&
-                                    frameQ_.size() >= (MAX_FRAME_QUEUE / 2)) {
+                                // Drop late frames aggressively to prevent queue buildup
+                                if (!frameQ_.empty() && fi.due < now2 - std::chrono::milliseconds(100)) {
                                     qHaveClock_ = true;
                                     if (pts != AV_NOPTS_VALUE) qBasePts_ = pts;
                                     qBaseWall_ = now2;
@@ -2055,19 +2236,46 @@ private:
                             }
                         }
                     }
+                } else if (aIndex >= 0 && pkt->stream_index == aIndex && !acc) {
+                    static uint64_t audioPacketsNoDecoder = 0;
+                    audioPacketsNoDecoder++;
+                    if (audioPacketsNoDecoder == 1) {
+                        log_("[SAT2IP] Audio packets received but decoder not ready yet");
+                    }
+                    if (audioPacketsNoDecoder % 50 == 0) {
+                        log_("[SAT2IP] Audio packets waiting for decoder: " + std::to_string(audioPacketsNoDecoder));
+                    }
                 } else if (acc && pkt->stream_index == aIndex) {
+                    static uint64_t audioPackets = 0;
+                    static uint64_t audioFrames = 0;
+                    audioPackets++;
+                    
                     int aerr = avcodec_send_packet(acc, pkt);
                     if (aerr >= 0 && aFrame) {
                         while (!stopFlag_.load()) {
                             aerr = avcodec_receive_frame(acc, aFrame);
                             if (aerr == AVERROR(EAGAIN) || aerr == AVERROR_EOF) break;
-                            if (aerr < 0) break;
+                            if (aerr < 0) {
+                                log_("[SAT2IP] Audio decode error: " + ffErr_(aerr));
+                                break;
+                            }
+                            
+                            audioFrames++;
+                            if (audioFrames == 1) {
+                                log_("[SAT2IP] First audio frame decoded successfully!");
+                            }
+                            if (audioPackets % 100 == 0) {
+                                log_("[SAT2IP] Audio progress: packets=" + std::to_string(audioPackets) + " frames=" + std::to_string(audioFrames));
+                            }
 
                             int ch = aFrame->ch_layout.nb_channels;
                             int sr = aFrame->sample_rate;
                             if (ch <= 0) ch = acc->ch_layout.nb_channels;
                             if (sr <= 0) sr = acc->sample_rate;
-                            if (ch <= 0 || sr <= 0) continue;
+                            if (ch <= 0 || sr <= 0) {
+                                log_("[SAT2IP] Invalid audio parameters: ch=" + std::to_string(ch) + " sr=" + std::to_string(sr));
+                                continue;
+                            }
 
                             if (!swr) {
                                 AVChannelLayout outLayout = aFrame->ch_layout;
@@ -2101,6 +2309,30 @@ private:
                                     chunk.channels = ch;
                                     chunk.pcm.resize(outBytes);
                                     memcpy(chunk.pcm.data(), pcm.data(), outBytes);
+                                    
+                                    // Intelligent audio-video sync: use audio's own clock base
+                                    auto now = std::chrono::steady_clock::now();
+                                    if (aFrame->best_effort_timestamp != AV_NOPTS_VALUE && fmt->streams[aIndex]->time_base.den > 0) {
+                                        if (!aHaveClock_) {
+                                            aBasePts_ = aFrame->best_effort_timestamp;
+                                            aBaseWall_ = now;
+                                            aHaveClock_ = true;
+                                            chunk.timestamp = aBaseWall_;
+                                        } else {
+                                            double dt = (double)(aFrame->best_effort_timestamp - aBasePts_) * av_q2d(fmt->streams[aIndex]->time_base);
+                                            chunk.timestamp = aBaseWall_ + std::chrono::microseconds((int64_t)(dt * 1000000.0));
+                                            
+                                            // Calculate audio-video offset
+                                            if (qHaveClock_) {
+                                                double vdt = (double)(aFrame->best_effort_timestamp - qBasePts_) * av_q2d(fmt->streams[aIndex]->time_base);
+                                                auto expectedVideoTime = qBaseWall_ + std::chrono::microseconds((int64_t)(vdt * 1000000.0));
+                                                int64_t offsetUs = std::chrono::duration_cast<std::chrono::microseconds>(chunk.timestamp - expectedVideoTime).count();
+                                                aVOffsetUs_.store(offsetUs);
+                                            }
+                                        }
+                                    } else {
+                                        chunk.timestamp = now;
+                                    }
                                     {
                                         std::lock_guard<std::mutex> lk(audioMu);
                                         while (!audioQ.empty() && audioQueuedBytes + chunk.pcm.size() > MAX_AUDIO_QUEUE_BYTES) {
@@ -2177,12 +2409,21 @@ private:
         std::vector<uint8_t> bgra;
     };
     static constexpr size_t MAX_FRAME_QUEUE = 8;
-    static constexpr size_t MAX_FRAME_POOL = 4;
+    static constexpr size_t MAX_FRAME_POOL = 8;
     std::deque<FrameItem> frameQ_;
     std::vector<std::vector<uint8_t>> framePool_; // reusable BGRA buffers
+    
+    // Audio-video sync tracking
     bool qHaveClock_ = false;
     int64_t qBasePts_ = 0;
     std::chrono::steady_clock::time_point qBaseWall_{};
+    
+    // Audio-specific sync tracking
+    bool aHaveClock_ = false;
+    int64_t aBasePts_ = 0;
+    std::chrono::steady_clock::time_point aBaseWall_{};
+    std::atomic<int64_t> aVOffsetUs_{0}; // Audio-video offset in microseconds (positive = audio ahead)
+    int64_t aVOffsetSamples_{0}; // Offset in audio samples for smooth adjustment
     
     std::atomic<bool> running_{false};
     std::atomic<bool> stopFlag_{false};

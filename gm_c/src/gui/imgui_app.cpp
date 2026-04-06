@@ -1793,8 +1793,18 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                         if (app->recentChannels.empty()) ImGui::TextDisabled("No recent channels yet.");
                     } else {
                         std::lock_guard<std::mutex> g(app->chMu);
-                        std::string flt;
-                        if (app->search[0]) { flt = app->search; for (auto& c : flt) c = (char)tolower((unsigned char)c); }
+                        std::lock_guard<std::mutex> g2(app->satMu);
+                        
+                        // Group channels by satellite
+                        std::map<int, std::vector<int>> satChannels;
+                        std::map<int, std::string> satNames;
+                        
+                        // Collect satellite names
+                        for (const auto& sat : app->satellites) {
+                            satNames[sat.sat_index] = sat.sat_name;
+                        }
+                        
+                        // Group channels by satellite
                         for (int i = 0; i < (int)app->channels.size(); i++) {
                             const auto& ch = app->channels[i];
                             if (app->tab == 1 && ch.is_radio) continue;
@@ -1802,36 +1812,69 @@ int RunImGuiApp(HINSTANCE hInstance, int nCmdShow) {
                             if (app->tab == 3 && ch.fav_bit == 0) continue;
                             if (app->tab == 4 && ch.is_scrambled) continue;
                             if (app->tab == 5 && !ch.is_scrambled) continue;
-                            if (!flt.empty()) {
-                                std::string n = ch.service_name; for (auto& c : n) c = (char)tolower((unsigned char)c);
+                            
+                            std::string flt;
+                            if (app->search[0]) { 
+                                flt = app->search; 
+                                for (auto& c : flt) c = (char)tolower((unsigned char)c);
+                                std::string n = ch.service_name; 
+                                for (auto& c : n) c = (char)tolower((unsigned char)c);
                                 std::string idx = std::to_string(ch.service_index);
                                 if (n.find(flt) == std::string::npos && idx.find(flt) == std::string::npos) continue;
                             }
-                            bool isSel = (i == app->liveSelectedCh);
-                            char lb[256];
-                            const char* hd = ch.is_hd ? " HD" : "";
-                            const char* enc = ch.is_scrambled ? " $" : "";
-                            const char* typ = ch.is_radio ? " [R]" : "";
-                            snprintf(lb, sizeof(lb), "%d. %s%s%s%s##lch%d", ch.service_index, ch.service_name.c_str(), hd, enc, typ, i);
-                            if (isSel) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.2f, 0.9f, 0.4f, 1.0f});
-                            if (ImGui::Selectable(lb, isSel) && !app->liveTuning) clickedChIdx = i;
-                            if (isSel) ImGui::PopStyleColor();
-                            if (ImGui::BeginPopupContextItem()) {
-                                if (ImGui::MenuItem("Channel Details")) { app->detailIdx = i; app->showDetail = true; }
-                                ImGui::Separator();
-                                auto& cls = app->customLists.lists;
-                                if (!cls.empty()) {
-                                    ImGui::TextDisabled("Add to list:");
-                                    for (int li = 0; li < (int)cls.size(); li++) {
-                                        char mlbl[128]; snprintf(mlbl, sizeof(mlbl), "%s##addcl%d", cls[li].title.c_str(), li);
-                                        if (ImGui::MenuItem(mlbl)) {
-                                            stb::CustomListEntry ce; ce.service_id = ch.service_id; ce.name = ch.service_name;
-                                            ce.service_index = ch.service_index; ce.is_radio = ch.is_radio;
-                                            cls[li].entries.push_back(std::move(ce)); app->clDirty = true;
+                            
+                            int satIdx = ch.satIndex();
+                            satChannels[satIdx].push_back(i);
+                        }
+                        
+                        // Display satellite tree
+                        for (const auto& satPair : satChannels) {
+                            int satIdx = satPair.first;
+                            const auto& channels = satPair.second;
+                            
+                            std::string satLabel = satNames[satIdx];
+                            if (satLabel.empty()) {
+                                satLabel = "Satellite " + std::to_string(satIdx);
+                            }
+                            satLabel += " (" + std::to_string(channels.size()) + ")##sat" + std::to_string(satIdx);
+                            
+                            bool satNodeOpen = ImGui::TreeNodeEx(satLabel.c_str(), ImGuiTreeNodeFlags_DefaultOpen);
+                            
+                            if (satNodeOpen) {
+                                for (int chIdx : channels) {
+                                    const auto& ch = app->channels[chIdx];
+                                    bool isSel = (chIdx == app->liveSelectedCh);
+                                    char lb[256];
+                                    const char* hd = ch.is_hd ? " HD" : "";
+                                    const char* enc = ch.is_scrambled ? " $" : "";
+                                    const char* typ = ch.is_radio ? " [R]" : "";
+                                    snprintf(lb, sizeof(lb), "%d. %s%s%s%s##lch%d", ch.service_index, ch.service_name.c_str(), hd, enc, typ, chIdx);
+                                    
+                                    ImGui::Indent();
+                                    if (isSel) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.2f, 0.9f, 0.4f, 1.0f});
+                                    if (ImGui::Selectable(lb, isSel) && !app->liveTuning) clickedChIdx = chIdx;
+                                    if (isSel) ImGui::PopStyleColor();
+                                    ImGui::Unindent();
+                                    
+                                    if (ImGui::BeginPopupContextItem()) {
+                                        if (ImGui::MenuItem("Channel Details")) { app->detailIdx = chIdx; app->showDetail = true; }
+                                        ImGui::Separator();
+                                        auto& cls = app->customLists.lists;
+                                        if (!cls.empty()) {
+                                            ImGui::TextDisabled("Add to list:");
+                                            for (int li = 0; li < (int)cls.size(); li++) {
+                                                char mlbl[128]; snprintf(mlbl, sizeof(mlbl), "%s##addcl%d", cls[li].title.c_str(), li);
+                                                if (ImGui::MenuItem(mlbl)) {
+                                                    stb::CustomListEntry ce; ce.service_id = ch.service_id; ce.name = ch.service_name;
+                                                    ce.service_index = ch.service_index; ce.is_radio = ch.is_radio;
+                                                    cls[li].entries.push_back(std::move(ce)); app->clDirty = true;
+                                                }
+                                            }
                                         }
+                                        ImGui::EndPopup();
                                     }
                                 }
-                                ImGui::EndPopup();
+                                ImGui::TreePop();
                             }
                         }
                     }
